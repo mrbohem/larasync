@@ -1,0 +1,47 @@
+{
+  "name": "larasync",
+  "version": "1.0.0",
+  "description": "[![Latest Version on Packagist](https://img.shields.io/packagist/v/mrbohem/larasync.svg?style=flat-square)](https://packagist.org/packages/mrbohem/larasync) [![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/mrbohem/larasync/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/mrbohem/larasync/actions?query=workflow%3Arun-tests+branch%3Amain) [![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/mrbohem/larasync/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/mrbohem/larasync/actions?query=workflow%3A\"Fix+PHP+code+style+issues\"+branch%3Amain) [![Total Downloads](https://img.shields.io/packagist/dt/mrbohem/larasync.svg?style=flat-square)](https://packagist.org/packages/mrbohem/larasync)",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrbohem/larasync.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mrbohem/larasync/issues"
+  },
+  "homepage": "https://github.com/mrbohem/larasync#readme",
+  "devDependencies": {
+    "@tailwindcss/vite": "next",
+    "autoprefixer": "^10.4.19",
+    "laravel-vite-plugin": "^1.0.3",
+    "postcss": "^8.5.0",
+    "tailwindcss": "next",
+    "vite": "^5.4.8"
+  },
+  "dependencies": {
+    "baseline-browser-mapping": "^2.9.19",
+    "browserslist": "^4.28.1",
+    "caniuse-lite": "^1.0.30001769",
+    "electron-to-chromium": "^1.5.286",
+    "escalade": "^3.2.0",
+    "fraction.js": "^5.3.4",
+    "nanoid": "^3.3.11",
+    "node-releases": "^2.0.27",
+    "picocolors": "^1.1.1",
+    "postcss-value-parser": "^4.2.0",
+    "source-map-js": "^1.2.1",
+    "update-browserslist-db": "^1.2.3"
+  }
+}
