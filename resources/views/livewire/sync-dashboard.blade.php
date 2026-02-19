@@ -189,8 +189,8 @@
                     </div>
 
                     <div class="grid md:grid-cols-2 gap-4 mb-6">
-                        <button wire:click="startSync('db1_to_db2')"
-                            class="relative p-6 bg-indigo-50 hover:bg-indigo-100 border-2 border-indigo-200 hover:border-indigo-300 rounded-xl text-left transition-all">
+                        <button wire:click="startSync('db1_to_db2')" wire:loading.attr="disabled"
+                            class="relative p-6 bg-indigo-50 hover:bg-indigo-100 border-2 border-indigo-200 hover:border-indigo-300 rounded-xl text-left transition-all disabled:opacity-60 disabled:cursor-not-allowed">
                             <div class="flex items-start gap-3 mb-3">
                                 <div class="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
                                     <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -211,10 +211,17 @@
                             <div class="absolute top-3 right-3 bg-emerald-500 text-white px-2 py-1 rounded-md text-xs font-semibold">
                                 Recommended
                             </div>
+                            <div wire:loading.flex class="hidden absolute inset-0 bg-indigo-50/80 rounded-xl items-center justify-center gap-2">
+                                <svg class="animate-spin w-4 h-4 text-indigo-600" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
+                                <span class="text-sm font-medium text-indigo-700">Processing...</span>
+                            </div>
                         </button>
 
-                        <button wire:click="startSync('db2_to_db1')"
-                            class="p-6 bg-orange-50 hover:bg-orange-100 border-2 border-orange-200 hover:border-orange-300 rounded-xl text-left transition-all">
+                        <button wire:click="startSync('db2_to_db1')" wire:loading.attr="disabled"
+                            class="relative p-6 bg-orange-50 hover:bg-orange-100 border-2 border-orange-200 hover:border-orange-300 rounded-xl text-left transition-all disabled:opacity-60 disabled:cursor-not-allowed">
                             <div class="flex items-start gap-3 mb-3">
                                 <div class="w-10 h-10 bg-orange-600 rounded-lg flex items-center justify-center flex-shrink-0">
                                     <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -232,11 +239,18 @@
                                     </div>
                                 </div>
                             </div>
+                            <div wire:loading.flex class="hidden absolute inset-0 bg-orange-50/80 rounded-xl items-center justify-center gap-2">
+                                <svg class="animate-spin w-4 h-4 text-orange-600" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                </svg>
+                                <span class="text-sm font-medium text-orange-700">Processing...</span>
+                            </div>
                         </button>
                     </div>
 
-                    <button wire:click="$set('show_direction_selector', false)"
-                        class="w-full px-4 py-2.5 text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors">
+                    <button wire:click="$set('show_direction_selector', false)" wire:loading.attr="disabled"
+                        class="w-full px-4 py-2.5 text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                         Cancel
                     </button>
                 </div>
@@ -421,19 +435,40 @@
                                     </td>
                                     <td class="px-5 py-3.5 text-center">
                                         @if($data['diff'] > 0)
-                                            <button wire:click="syncTable('{{ $table }}')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors">
-                                                Sync
+                                            <button wire:click="syncTable('{{ $table }}')" wire:target="syncTable('{{ $table }}')" wire:loading.attr="disabled" class="relative px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
+                                                <span wire:target="syncTable('{{ $table }}')" wire:loading.remove>Sync</span>
+                                                <span wire:target="syncTable('{{ $table }}')" wire:loading class="inline-flex items-center gap-1.5">
+                                                    <svg class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                                    </svg>
+                                                    Syncing...
+                                                </span>
                                             </button>
                                         @elseif($data['diff'] < 0)
-                                            <button wire:click="syncTable('{{ $table }}')" class="px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded-lg transition-colors">
-                                                Update
+                                            <button wire:click="syncTable('{{ $table }}')" wire:target="syncTable('{{ $table }}')" wire:loading.attr="disabled" class="relative px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
+                                                <span wire:target="syncTable('{{ $table }}')" wire:loading.remove>Update</span>
+                                                <span wire:target="syncTable('{{ $table }}')" wire:loading class="inline-flex items-center gap-1.5">
+                                                    <svg class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                                    </svg>
+                                                    Updating...
+                                                </span>
                                             </button>
                                         @else
                                             @if(in_array($table, $synced_tables))
                                                 <span class="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-medium inline-block">✓ Done</span>
                                             @else
-                                                <button wire:click="syncTable('{{ $table }}')" class="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm font-medium rounded-lg transition-colors">
-                                                    Force
+                                                <button wire:click="syncTable('{{ $table }}')" wire:target="syncTable('{{ $table }}')" wire:loading.attr="disabled" class="relative px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
+                                                    <span wire:target="syncTable('{{ $table }}')" wire:loading.remove>Force</span>
+                                                    <span wire:target="syncTable('{{ $table }}')" wire:loading class="inline-flex items-center gap-1.5">
+                                                        <svg class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                                        </svg>
+                                                        Forcing...
+                                                    </span>
                                                 </button>
                                             @endif
                                         @endif
