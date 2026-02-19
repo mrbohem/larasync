@@ -15,6 +15,7 @@ class TableComparisonService
     /**
      * Compare all tables between two database configs.
      * Returns an array keyed by normalized table name with rows1, rows2, diff, and action.
+     * Uses batch queries to fetch all row counts efficiently.
      */
     public function compare(array $sourceConfig, array $targetConfig): array
     {
@@ -38,18 +39,22 @@ class TableComparisonService
         $ignoredTables = config('larasync.ignored_tables', []);
         $allTables = array_diff($allTables, $ignoredTables);
 
+        // Fetch all row counts in batch queries instead of individual queries
+        $sourceRowCounts = $this->getTableRowCounts($sourceConn, array_values($sourceMap));
+        $targetRowCounts = $this->getTableRowCounts($targetConn, array_values($targetMap));
+
         $comparison = [];
 
         foreach ($allTables as $table) {
             $sourceTable = $sourceMap[$table] ?? null;
             $targetTable = $targetMap[$table] ?? null;
 
-            $rows1 = $sourceTable
-                ? DB::connection($sourceConn)->table($sourceTable)->count()
+            $rows1 = $sourceTable && isset($sourceRowCounts[$sourceTable])
+                ? $sourceRowCounts[$sourceTable]
                 : 0;
 
-            $rows2 = $targetTable
-                ? DB::connection($targetConn)->table($targetTable)->count()
+            $rows2 = $targetTable && isset($targetRowCounts[$targetTable])
+                ? $targetRowCounts[$targetTable]
                 : 0;
 
             $diff = $rows1 - $rows2;
@@ -63,6 +68,165 @@ class TableComparisonService
         }
 
         return $comparison;
+    }
+
+    /**
+     * Fetch row counts for all tables using batch queries.
+     * Returns array: table_name => row_count
+     * Uses database-specific system tables for efficiency.
+     */
+    public function getTableRowCounts(string $connectionName, array $tables): array
+    {
+        if (empty($tables)) {
+            return [];
+        }
+
+        $connection = DB::connection($connectionName);
+        $driver = $connection->getDriverName();
+
+        return match ($driver) {
+            'pgsql' => $this->getPostgresTableRowCounts($connection, $tables),
+            'mysql' => $this->getMysqlTableRowCounts($connection, $tables),
+            'sqlite' => $this->getSqliteTableRowCounts($connection, $tables),
+            default => $this->getFallbackTableRowCounts($connection, $tables),
+        };
+    }
+
+    /**
+     * Get row counts from PostgreSQL using pg_stat_user_tables.
+     */
+    private function getPostgresTableRowCounts($connection, array $tables): array
+    {
+        try {
+            $tableList = "'" . implode("','", array_map(fn($t) => $this->extractTableName($t), $tables)) . "'";
+            
+            $results = $connection->select("
+                SELECT schemaname, relname as table_name, n_live_tup as row_count
+                FROM pg_stat_user_tables
+                WHERE relname IN ({$tableList})
+            ");
+
+            $rowCounts = [];
+            foreach ($results as $row) {
+                // Use schema.table_name format if available, fallback to table_name
+                $fullName = $row->schemaname . '.' . $row->table_name;
+                $rowCounts[$fullName] = (int) $row->row_count;
+                // Also store by table name alone for compatibility
+                $rowCounts[$row->table_name] = (int) $row->row_count;
+            }
+
+            return $rowCounts;
+        } catch (\Exception $e) {
+            // Fallback to individual counts if system table fails
+            return $this->getFallbackTableRowCounts($connection, $tables);
+        }
+    }
+
+    /**
+     * Get row counts from MySQL using information_schema.TABLES.
+     */
+    private function getMysqlTableRowCounts($connection, array $tables): array
+    {
+        try {
+            $tableList = "'" . implode("','", array_map(fn($t) => $this->extractTableName($t), $tables)) . "'";
+            $database = $connection->getDatabaseName();
+
+            $results = $connection->select("
+                SELECT TABLE_NAME, TABLE_ROWS
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ({$tableList})
+            ", [$database]);
+
+            $rowCounts = [];
+            foreach ($results as $row) {
+                // MySQL information_schema may return NULL for some engines; use 0 as fallback
+                $count = $row->TABLE_ROWS !== null ? (int) $row->TABLE_ROWS : 0;
+                $rowCounts[$row->TABLE_NAME] = $count;
+            }
+
+            return $rowCounts;
+        } catch (\Exception $e) {
+            // Fallback to individual counts if system table fails
+            return $this->getFallbackTableRowCounts($connection, $tables);
+        }
+    }
+
+    /**
+     * Get row counts from SQLite using a single UNION ALL query.
+     * This batches all table counts into one query for efficiency.
+     */
+    private function getSqliteTableRowCounts($connection, array $tables): array
+    {
+        if (empty($tables)) {
+            return [];
+        }
+
+        try {
+            // Build a UNION ALL query to count all tables in a single round-trip
+            $countClauses = [];
+            foreach ($tables as $table) {
+                $tableName = $this->extractTableName($table);
+                // Escape table name properly for SQLite
+                $escapedTable = '"' . str_replace('"', '""', $tableName) . '"';
+                $countClauses[] = "SELECT '{$tableName}' as table_name, COUNT(*) as row_count FROM {$escapedTable}";
+            }
+
+            $query = implode(' UNION ALL ', $countClauses);
+            $results = $connection->select($query);
+
+            $rowCounts = [];
+            foreach ($results as $row) {
+                $tableName = $row->table_name;
+                $count = (int) $row->row_count;
+                $rowCounts[$tableName] = $count;
+                
+                // Also store with potential schema prefix for compatibility
+                foreach ($tables as $table) {
+                    if ($this->extractTableName($table) === $tableName) {
+                        $rowCounts[$table] = $count;
+                    }
+                }
+            }
+
+            return $rowCounts;
+        } catch (\Exception $e) {
+            // Fallback if UNION ALL approach fails
+            return $this->getFallbackTableRowCounts($connection, $tables);
+        }
+    }
+
+    /**
+     * Fallback: count rows from each table individually.
+     */
+    private function getFallbackTableRowCounts($connection, array $tables): array
+    {
+        $rowCounts = [];
+
+        foreach ($tables as $table) {
+            try {
+                $tableName = $this->extractTableName($table);
+                $count = (int) $connection->table($tableName)->count();
+                $rowCounts[$table] = $count;
+                $rowCounts[$tableName] = $count;
+            } catch (\Exception $e) {
+                $rowCounts[$table] = 0;
+                $rowCounts[$tableName] = 0;
+            }
+        }
+
+        return $rowCounts;
+    }
+
+    /**
+     * Extract the actual table name from potentially schema-qualified names.
+     */
+    private function extractTableName(string $table): string
+    {
+        if (str_contains($table, '.')) {
+            $parts = explode('.', $table);
+            return end($parts);
+        }
+        return $table;
     }
 
     /**
