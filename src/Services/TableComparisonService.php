@@ -24,7 +24,7 @@ class TableComparisonService
         $this->connectionService->registerConnection($sourceConn, $sourceConfig);
         $this->connectionService->registerConnection($targetConn, $targetConfig);
 
-        // Get raw table listings and normalize (strip schema prefix like "main.")
+        // Get raw table listings and normalize (strip schema prefix like "main." or schema.)
         $rawSource = Schema::connection($sourceConn)->getTableListing();
         $rawTarget = Schema::connection($targetConn)->getTableListing();
 
@@ -41,12 +41,15 @@ class TableComparisonService
         $comparison = [];
 
         foreach ($allTables as $table) {
-            $rows1 = isset($sourceMap[$table])
-                ? DB::connection($sourceConn)->table($sourceMap[$table])->count()
+            $sourceTable = $sourceMap[$table] ?? null;
+            $targetTable = $targetMap[$table] ?? null;
+
+            $rows1 = $sourceTable
+                ? DB::connection($sourceConn)->table($sourceTable)->count()
                 : 0;
 
-            $rows2 = isset($targetMap[$table])
-                ? DB::connection($targetConn)->table($targetMap[$table])->count()
+            $rows2 = $targetTable
+                ? DB::connection($targetConn)->table($targetTable)->count()
                 : 0;
 
             $diff = $rows1 - $rows2;
@@ -64,23 +67,30 @@ class TableComparisonService
 
     /**
      * Strip schema/database prefix from table name.
-     * e.g. "main.users" → "users", "mydb.posts" → "posts"
+     * e.g. "main.users" → "users", "public.posts" → "posts", "mydb.public.posts" → "posts"
      */
     public function normalizeTableName(string $table): string
     {
-        return str_contains($table, '.')
-            ? substr($table, strpos($table, '.') + 1)
-            : $table;
+        // Handle PostgreSQL schema.table format or database.schema.table
+        if (str_contains($table, '.')) {
+            $parts = explode('.', $table);
+            // Return the last part (the actual table name)
+            return end($parts);
+        }
+        return $table;
     }
 
     /**
      * Build a lookup map: normalized_name => original_name
+     * This preserves the schema-qualified name for proper querying.
      */
     private function buildTableMap(array $rawTables): array
     {
         $map = [];
         foreach ($rawTables as $t) {
-            $map[$this->normalizeTableName($t)] = $t;
+            $normalized = $this->normalizeTableName($t);
+            // Store the original (potentially schema-qualified) name
+            $map[$normalized] = $t;
         }
         return $map;
     }

@@ -4,9 +4,11 @@ namespace MrBohem\Larasync\Http\Livewire;
 
 use Livewire\Component;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Log;
 use MrBohem\Larasync\Services\DatabaseConnectionService;
 use MrBohem\Larasync\Services\TableComparisonService;
 use MrBohem\Larasync\Services\TableSyncService;
+use MrBohem\Larasync\Services\TableDependencyService;
 
 class SyncDashboard extends Component
 {
@@ -60,12 +62,14 @@ class SyncDashboard extends Component
     private DatabaseConnectionService $connectionService;
     private TableComparisonService $comparisonService;
     private TableSyncService $syncService;
+    private TableDependencyService $dependencyService;
 
     public function boot()
     {
         $this->connectionService = new DatabaseConnectionService();
         $this->comparisonService = new TableComparisonService($this->connectionService);
         $this->syncService = new TableSyncService($this->connectionService, $this->comparisonService);
+        $this->dependencyService = new TableDependencyService($this->connectionService);
     }
 
     public function rules()
@@ -242,6 +246,25 @@ class SyncDashboard extends Component
 
         $tables = array_keys($this->comparison);
 
+        // Get the target config to analyze dependencies
+        $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
+
+        // Reorder tables based on foreign key dependencies
+        try {
+            $orderedTables = $this->dependencyService->getSyncOrder($targetConfig, $tables);
+            
+            if ($orderedTables !== $tables) {
+                $this->logs[] = "📋 Tables reordered by dependencies:";
+                $this->logs[] = "   Sync order: " . implode(' → ', $orderedTables);
+                $tables = $orderedTables;
+            } else {
+                $this->logs[] = "📋 No dependencies detected, syncing in original order";
+            }
+        } catch (\Exception $e) {
+            $this->logs[] = "⚠️ Could not analyze dependencies, syncing in original order";
+            Log::warning("Dependency analysis failed: " . $e->getMessage());
+        }
+
         $this->sync_in_progress = true;
         $this->tables_to_sync = $tables;
         $this->sync_completed_count = 0;
@@ -262,7 +285,8 @@ class SyncDashboard extends Component
         if ($this->sync_completed_count >= $this->sync_total_count) {
             $this->current_syncing_table = null;
             $this->sync_in_progress = false;
-            $this->logs[] = "✅ All {$this->sync_total_count} tables synced!";
+            
+            $this->logs[] = "✅ All {$this->sync_total_count} tables synced successfully!";
             $this->dispatch('all-tables-synced');
         } else {
             $nextIndex = array_search($tableName, $this->tables_to_sync);
@@ -392,3 +416,4 @@ class SyncDashboard extends Component
         return $label;
     }
 }
+

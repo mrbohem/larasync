@@ -22,9 +22,9 @@ it('returns plain table name unchanged', function () {
     expect($this->service->normalizeTableName('users'))->toBe('users');
 });
 
-it('handles table names with multiple dots by stripping first prefix', function () {
-    // "schema.db.table" → "db.table" (strips only up to first dot)
-    expect($this->service->normalizeTableName('schema.db.table'))->toBe('db.table');
+it('handles table names with multiple dots by extracting table name', function () {
+    // "schema.db.table" → "table" (extracts the actual table name)
+    expect($this->service->normalizeTableName('schema.db.table'))->toBe('table');
 });
 
 // ── compare() ──────────────────────────────────────────────────

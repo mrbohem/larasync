@@ -37,13 +37,32 @@ class DatabaseConnectionService
         $config = [
             'driver' => $driver,
             'database' => $database,
-            'charset' => 'utf8mb4',
-            'collation' => 'utf8mb4_unicode_ci',
             'prefix' => '',
-            'strict' => true,
         ];
 
+        // Add charset and collation only for MySQL
+        if ($driver === 'mysql') {
+            $config['charset'] = 'utf8mb4';
+            $config['collation'] = 'utf8mb4_unicode_ci';
+            $config['strict'] = true;
+        }
+
+        // PostgreSQL doesn't use charset/collation in the same way
+        if ($driver === 'pgsql') {
+            $config['sslmode'] = env('DB_SSL_MODE', 'prefer');
+            $config['search_path'] = 'public';
+        }
+
         if ($driver !== 'sqlite') {
+            // Set default port based on driver if not provided
+            if (empty($port)) {
+                $port = match($driver) {
+                    'mysql' => '3306',
+                    'pgsql' => '5432',
+                    default => $port,
+                };
+            }
+
             $config = array_merge($config, [
                 'host' => $host,
                 'port' => $port,
