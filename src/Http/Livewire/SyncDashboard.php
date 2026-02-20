@@ -25,12 +25,14 @@ class SyncDashboard extends Component
     public $db1_database;
     public $db1_username;
     public $db1_password;
+    public $db1_schema;
     public $db2_driver;
     public $db2_host;
     public $db2_port;
     public $db2_database;
     public $db2_username;
     public $db2_password;
+    public $db2_schema;
 
     // ── UI State ───────────────────────────────────────────────────
     public $show_db1_form = false;
@@ -102,7 +104,7 @@ class SyncDashboard extends Component
     private function loadConfigValues()
     {
         foreach (['db1', 'db2'] as $db) {
-            foreach (['driver', 'host', 'port', 'database', 'username', 'password'] as $field) {
+            foreach (['driver', 'host', 'port', 'database', 'username', 'password', 'schema'] as $field) {
                 $this->{$db . '_' . $field} = config("larasync.{$db}.{$field}");
             }
         }
@@ -357,6 +359,7 @@ class SyncDashboard extends Component
             database: $this->{$prefix . '_database'},
             username: $this->{$prefix . '_username'},
             password: $this->{$prefix . '_password'},
+            schema: $this->{$prefix . '_schema'},
         );
     }
 

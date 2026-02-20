@@ -8,6 +8,7 @@ return [
         'database' => env('LARASYNC_DB1_DATABASE'),
         'username' => env('LARASYNC_DB1_USERNAME'),
         'password' => env('LARASYNC_DB1_PASSWORD', ''),
+        'schema' => env('LARASYNC_DB1_SCHEMA', null),  // PostgreSQL: 'public' (default), MySQL: null, SQLite: null
     ],
 
     'db2' => [  // Database 2 (auto-detected as Local or Cloud)
@@ -17,6 +18,7 @@ return [
         'database' => env('LARASYNC_DB2_DATABASE'),
         'username' => env('LARASYNC_DB2_USERNAME'),
         'password' => env('LARASYNC_DB2_PASSWORD', ''),
+        'schema' => env('LARASYNC_DB2_SCHEMA', null),  // PostgreSQL: 'public' (default), MySQL: null, SQLite: null
     ],
 
     /*

@@ -20,6 +20,20 @@ class DatabaseConnectionService
     }
 
     /**
+     * Get the default schema for a given database driver.
+     * - PostgreSQL: 'public'
+     * - MySQL: null (not applicable, uses database as namespace)
+     * - SQLite: null (not applicable)
+     */
+    public function getDefaultSchema(string $driver): ?string
+    {
+        return match($driver) {
+            'pgsql' => 'public',
+            default => null,
+        };
+    }
+
+    /**
      * Build a Laravel database connection config array.
      */
     public function buildConfig(
@@ -28,10 +42,16 @@ class DatabaseConnectionService
         ?string $port,
         ?string $database,
         ?string $username,
-        ?string $password
+        ?string $password,
+        ?string $schema = null
     ): ?array {
         if (!$driver) {
             return null;
+        }
+
+        // Use provided schema or get default for the driver
+        if ($schema === null) {
+            $schema = $this->getDefaultSchema($driver);
         }
 
         $config = [
@@ -39,6 +59,11 @@ class DatabaseConnectionService
             'database' => $database,
             'prefix' => '',
         ];
+
+        // Store schema if provided (for PostgreSQL)
+        if ($schema) {
+            $config['schema'] = $schema;
+        }
 
         // Add charset and collation only for MySQL
         if ($driver === 'mysql') {
@@ -50,7 +75,7 @@ class DatabaseConnectionService
         // PostgreSQL doesn't use charset/collation in the same way
         if ($driver === 'pgsql') {
             $config['sslmode'] = env('DB_SSL_MODE', 'prefer');
-            $config['search_path'] = 'public';
+            $config['search_path'] = $schema ?? 'public';
         }
 
         if ($driver !== 'sqlite') {

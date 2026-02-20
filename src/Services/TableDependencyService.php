@@ -38,6 +38,9 @@ class TableDependencyService
             $connName = 'fk_analysis_pg';
             $this->connectionService->registerConnection($connName, $config);
 
+            // Get schema from config or use default
+            $schema = $config['schema'] ?? $this->connectionService->getDefaultSchema('pgsql');
+
             $query = "
                 SELECT DISTINCT
                     tc.table_name,
@@ -50,10 +53,10 @@ class TableDependencyService
                     ON ccu.constraint_name = tc.constraint_name
                     AND ccu.table_schema = tc.table_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY'
-                    AND tc.table_schema = 'public'
+                    AND tc.table_schema = ?
             ";
 
-            $results = DB::connection($connName)->select($query);
+            $results = DB::connection($connName)->select($query, [$schema]);
             
             return $this->buildDependencyMap($results, $tablesToSync);
         } catch (\Exception $e) {
