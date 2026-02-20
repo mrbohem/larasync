@@ -210,6 +210,17 @@ class SyncDashboard extends Component
     //  Sync
     // ────────────────────────────────────────────────────────────────
 
+    /**
+     * Increase PHP execution time for sync operations.
+     * Prevents "Maximum execution time exceeded" errors on large tables.
+     */
+    private function increaseExecutionTime($seconds = 300)
+    {
+        if (function_exists('set_time_limit')) {
+            set_time_limit($seconds);
+        }
+    }
+
     public function syncTable($tableName)
     {
         if (!$this->db1_connected || !$this->db2_connected) {
@@ -217,6 +228,7 @@ class SyncDashboard extends Component
             return;
         }
 
+        $this->increaseExecutionTime(300); // 5 minutes per table
         $this->syncing = true;
         $this->logs[] = "🔄 Syncing table: {$tableName}...";
 
@@ -244,6 +256,7 @@ class SyncDashboard extends Component
             return;
         }
 
+        $this->increaseExecutionTime(600); // 10 minutes for full sync
         $tables = array_keys($this->comparison);
 
         // Get the target config to analyze dependencies

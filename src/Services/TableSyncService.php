@@ -9,7 +9,8 @@ use MrBohem\Larasync\Support\SyncResult;
 
 class TableSyncService
 {
-    private const CHUNK_SIZE = 500;
+    private const CHUNK_SIZE = 1000;
+    private const BATCH_INSERT_SIZE = 500;
 
     public function __construct(
         private DatabaseConnectionService $connectionService,
@@ -18,7 +19,8 @@ class TableSyncService
     }
 
     /**
-     * Sync a single table: truncate target, copy all rows from source.
+     * Sync a single table: truncate target, stream copy all rows from source.
+     * Uses chunked queries to avoid memory exhaustion on large tables.
      */
     public function syncTable(string $tableName, array $sourceConfig, array $targetConfig): SyncResult
     {
@@ -47,19 +49,17 @@ class TableSyncService
                 );
             }
 
-            // Get data from source
-            $records = DB::connection($sourceConn)->table($sourceTableName)->get();
-            $data = $records->map(fn($item) => (array) $item)->toArray();
-            $rowCount = count($data);
-
             // Extract unqualified table name once for all operations
             $unqualifiedTableName = $this->extractTableName($targetTableName);
 
-            // Sync with driver-specific handling
+            // Truncate and count total rows using streaming
+            $rowCount = $this->countTableRows(DB::connection($sourceConn), $sourceTableName);
+
+            // Sync with driver-specific handling (streams data in chunks)
             if ($targetDriver === 'pgsql') {
-                $this->syncTablePostgreSQL($targetConn, $unqualifiedTableName, $data);
+                $this->syncTablePostgreSQL($sourceConn, $targetConn, $sourceTableName, $unqualifiedTableName);
             } else {
-                $this->syncTableDefault($targetConn, $unqualifiedTableName, $data);
+                $this->syncTableDefault($sourceConn, $targetConn, $sourceTableName, $unqualifiedTableName);
             }
 
             return new SyncResult(
@@ -70,6 +70,18 @@ class TableSyncService
         } catch (\Exception $e) {
             Log::error("Table sync error {$tableName}: " . $e->getMessage());
             return $this->createErrorResult($tableName, $e);
+        }
+    }
+
+    /**
+     * Count total rows in a table without loading data.
+     */
+    private function countTableRows($connection, string $tableName): int
+    {
+        try {
+            return (int) $connection->table($tableName)->count();
+        } catch (\Exception $e) {
+            return 0;
         }
     }
 
@@ -94,25 +106,26 @@ class TableSyncService
     }
 
     /**
-     * Sync a table for PostgreSQL with trigger disabling for data loading.
+     * Sync a table for PostgreSQL with chunked streaming.
      * Disables triggers at session level to bypass FK checks without requiring DEFERRABLE constraints.
      */
-    private function syncTablePostgreSQL(string $connName, string $tableName, array $data): void
+    private function syncTablePostgreSQL(string $sourceConn, string $targetConn, string $sourceTableName, string $tableName): void
     {
-        $connection = DB::connection($connName);
+        $sourceConnection = DB::connection($sourceConn);
+        $targetConnection = DB::connection($targetConn);
         
         try {
             // Disable triggers at session level BEFORE transaction to avoid aborted state
-            $connection->statement('SET session_replication_role = replica');
+            $targetConnection->statement('SET session_replication_role = replica');
             
             // Perform sync in transaction
-            $connection->transaction(function () use ($connection, $tableName, $data) {
-                $this->truncateTable($connection, $tableName);
-                $this->insertData($connection, $tableName, $data);
+            $targetConnection->transaction(function () use ($sourceConnection, $targetConnection, $sourceTableName, $tableName) {
+                $this->truncateTable($targetConnection, $tableName);
+                $this->insertDataChunked($sourceConnection, $targetConnection, $sourceTableName, $tableName);
             });
         } finally {
             // Always reset role after transaction completes
-            $this->resetPostgreSQLRole($connection);
+            $this->resetPostgreSQLRole($targetConnection);
         }
     }
 
@@ -166,22 +179,6 @@ class TableSyncService
     }
 
     /**
-     * Sync a table for MySQL/SQLite using schema constraint handling.
-     */
-    private function syncTableDefault(string $connName, string $tableName, array $data): void
-    {
-        $connection = DB::connection($connName);
-        Schema::connection($connName)->disableForeignKeyConstraints();
-        
-        try {
-            $connection->table($tableName)->truncate();
-            $this->insertData($connection, $tableName, $data);
-        } finally {
-            Schema::connection($connName)->enableForeignKeyConstraints();
-        }
-    }
-
-    /**
      * Find the actual table name (with schema if needed) from a list using normalized name.
      */
     private function findActualTableName(string $normalizedName, array $rawTables): ?string
@@ -192,5 +189,66 @@ class TableSyncService
             }
         }
         return null;
+    }
+
+    /**
+     * Sync a table for MySQL/SQLite using schema constraint handling with chunked streaming.
+     */
+    private function syncTableDefault(string $sourceConn, string $targetConn, string $sourceTableName, string $tableName): void
+    {
+        $sourceConnection = DB::connection($sourceConn);
+        $targetConnection = DB::connection($targetConn);
+        Schema::connection($targetConn)->disableForeignKeyConstraints();
+        
+        try {
+            $targetConnection->table($tableName)->truncate();
+            $this->insertDataChunked($sourceConnection, $targetConnection, $sourceTableName, $tableName);
+        } finally {
+            Schema::connection($targetConn)->enableForeignKeyConstraints();
+        }
+    }
+
+    /**
+     * Insert data in chunks using streaming to avoid memory exhaustion.
+     * Uses cursor to stream rows from source and insert in batches to target.
+     * Adds orderBy clause to ensure chunk() works on tables without proper primary keys.
+     */
+    private function insertDataChunked($sourceConnection, $targetConnection, string $sourceTableName, string $tableName): void
+    {
+        $batch = [];
+        $count = 0;
+
+        // Get the first column name for ordering (required by chunk() method)
+        $columns = Schema::connection('sync_source')->getColumnListing($sourceTableName);
+        $orderByColumn = !empty($columns) ? $columns[0] : null;
+
+        // Build query with orderBy clause (required for chunk() to work on tables without primary key)
+        $query = $sourceConnection->table($sourceTableName);
+        if ($orderByColumn) {
+            $query = $query->orderBy($orderByColumn);
+        }
+
+        // Stream data in chunks (this doesn't load all data into memory at once)
+        $query->chunk(self::CHUNK_SIZE, function ($rows) use ($targetConnection, $tableName, &$batch, &$count) {
+            foreach ($rows as $row) {
+                $batch[] = (array) $row;
+                $count++;
+
+                // Insert when batch reaches BATCH_INSERT_SIZE
+                if (count($batch) >= self::BATCH_INSERT_SIZE) {
+                    $targetConnection->table($tableName)->insert($batch);
+                    $batch = [];
+                }
+            }
+
+            // Insert remaining rows in batch
+            if (!empty($batch)) {
+                $targetConnection->table($tableName)->insert($batch);
+                $batch = [];
+            }
+
+            // Allow garbage collection if available
+            gc_collect_cycles();
+        });
     }
 }
