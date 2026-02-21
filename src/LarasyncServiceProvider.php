@@ -21,8 +21,6 @@ class LarasyncServiceProvider extends PackageServiceProvider
             ->name('larasync')
             ->hasConfigFile()
             ->hasViews()
-            ->hasMigration('create_larasync_table')
-            ->hasCommand(LarasyncCommand::class)
             ->hasAssets()
             ->hasRoute('web');
     }

@@ -17,11 +17,11 @@ it('has correct default config values', function () {
         ->and(config('larasync.ignored_tables'))->toContain('sessions');
 });
 
-it('registers the larasync artisan command', function () {
-    $commands = array_keys(Artisan::all());
+// it('registers the larasync artisan command', function () {
+//     $commands = array_keys(Artisan::all());
 
-    expect($commands)->toContain('larasync');
-});
+//     expect($commands)->toContain('larasync');
+// });
 
 it('registers the sync dashboard route', function () {
     $route = Route::getRoutes()->getByName('larasync.dashboard');
