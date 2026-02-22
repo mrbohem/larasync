@@ -278,8 +278,8 @@
                         </div>
                     </div>
                     <div class="flex gap-2.5">
-                        <button wire:click="syncAllTables" @if($sync_in_progress) disabled @endif
-                            class="px-4 py-2.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors inline-flex items-center gap-2 {{ $sync_in_progress ? 'opacity-50 cursor-not-allowed' : '' }}">
+                        <button wire:click="syncAllTables" @if($sync_in_progress || $single_sync_table) disabled @endif
+                            class="px-4 py-2.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors inline-flex items-center gap-2 {{ ($sync_in_progress || $single_sync_table) ? 'opacity-50 cursor-not-allowed' : '' }}">
                             @if($sync_in_progress)
                                 <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
                                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -400,7 +400,7 @@
                         </thead>
                         <tbody class="divide-y divide-slate-200/80 bg-white">
                             @foreach($comparison as $table => $data)
-                                <tr class="hover:bg-slate-50/50 transition-colors {{ $data['diff'] !== 0 ? 'border-l-2 border-indigo-500' : '' }} {{ $current_syncing_table === $table ? 'bg-amber-50/30' : '' }}">
+                                <tr class="hover:bg-slate-50/50 transition-colors {{ $data['diff'] !== 0 ? 'border-l-2 border-indigo-500' : '' }} {{ ($current_syncing_table === $table || $single_sync_table === $table) ? 'bg-amber-50/30' : '' }}">
                                     <td class="px-5 py-3.5 font-mono font-medium text-sm text-slate-900 max-w-xs truncate">{{ $table }}</td>
                                     <td class="px-5 py-3.5 text-center">
                                         <div class="font-mono font-semibold text-sm text-slate-900">{{ number_format($data['rows1']) }}</div>
@@ -434,10 +434,30 @@
                                         @endif
                                     </td>
                                     <td class="px-5 py-3.5 text-center">
-                                        @if($data['diff'] > 0)
-                                            <button wire:click="syncTable('{{ $table }}')" wire:target="syncTable('{{ $table }}')" wire:loading.attr="disabled" class="relative px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
-                                                <span wire:target="syncTable('{{ $table }}')" wire:loading.remove>Sync</span>
-                                                <span wire:target="syncTable('{{ $table }}')" wire:loading class="inline-flex items-center gap-1.5">
+                                        @if($single_sync_table === $table)
+                                            {{-- Chunked sync progress --}}
+                                            <div class="flex flex-col items-center gap-1.5">
+                                                <div class="flex items-center gap-2">
+                                                    <svg class="animate-spin w-3.5 h-3.5 text-indigo-600" fill="none" viewBox="0 0 24 24">
+                                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                                    </svg>
+                                                    <span class="text-xs font-semibold text-indigo-700">
+                                                        {{ $single_sync_total > 0 ? round(($single_sync_offset / $single_sync_total) * 100) : 0 }}%
+                                                    </span>
+                                                </div>
+                                                <div class="w-28 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                                    <div class="h-full bg-indigo-600 rounded-full transition-all duration-300" 
+                                                         style="width: {{ $single_sync_total > 0 ? round(($single_sync_offset / $single_sync_total) * 100) : 0 }}%"></div>
+                                                </div>
+                                                <span class="text-xs text-slate-500 font-mono">
+                                                    {{ number_format($single_sync_offset) }} / {{ number_format($single_sync_total) }}
+                                                </span>
+                                            </div>
+                                        @elseif($data['diff'] > 0)
+                                            <button wire:click="syncSingleTable('{{ $table }}')" wire:target="syncSingleTable('{{ $table }}')" wire:loading.attr="disabled" @if($single_sync_table) disabled @endif class="relative px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
+                                                <span wire:target="syncSingleTable('{{ $table }}')" wire:loading.remove>Sync</span>
+                                                <span wire:target="syncSingleTable('{{ $table }}')" wire:loading class="inline-flex items-center gap-1.5">
                                                     <svg class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
                                                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
@@ -446,9 +466,9 @@
                                                 </span>
                                             </button>
                                         @elseif($data['diff'] < 0)
-                                            <button wire:click="syncTable('{{ $table }}')" wire:target="syncTable('{{ $table }}')" wire:loading.attr="disabled" class="relative px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
-                                                <span wire:target="syncTable('{{ $table }}')" wire:loading.remove>Update</span>
-                                                <span wire:target="syncTable('{{ $table }}')" wire:loading class="inline-flex items-center gap-1.5">
+                                            <button wire:click="syncSingleTable('{{ $table }}')" wire:target="syncSingleTable('{{ $table }}')" wire:loading.attr="disabled" @if($single_sync_table) disabled @endif class="relative px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
+                                                <span wire:target="syncSingleTable('{{ $table }}')" wire:loading.remove>Update</span>
+                                                <span wire:target="syncSingleTable('{{ $table }}')" wire:loading class="inline-flex items-center gap-1.5">
                                                     <svg class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
                                                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
@@ -460,9 +480,9 @@
                                             @if(in_array($table, $synced_tables))
                                                 <span class="px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-medium inline-block">✓ Done</span>
                                             @else
-                                                <button wire:click="syncTable('{{ $table }}')" wire:target="syncTable('{{ $table }}')" wire:loading.attr="disabled" class="relative px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
-                                                    <span wire:target="syncTable('{{ $table }}')" wire:loading.remove>Force</span>
-                                                    <span wire:target="syncTable('{{ $table }}')" wire:loading class="inline-flex items-center gap-1.5">
+                                                <button wire:click="syncSingleTable('{{ $table }}')" wire:target="syncSingleTable('{{ $table }}')" wire:loading.attr="disabled" @if($single_sync_table) disabled @endif class="relative px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
+                                                    <span wire:target="syncSingleTable('{{ $table }}')" wire:loading.remove>Force</span>
+                                                    <span wire:target="syncSingleTable('{{ $table }}')" wire:loading class="inline-flex items-center gap-1.5">
                                                         <svg class="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
                                                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
@@ -607,6 +627,19 @@
             Livewire.on('all-tables-synced', function () {
                 syncQueue = [];
                 syncIdx = 0;
+            });
+
+            // Single-table chunked sync
+            Livewire.on('start-single-table-sync', function (event) {
+                var tableName = (event.tableName) || (event[0] && event[0].tableName) || '';
+                var comp = getComponent();
+                if (comp) comp.syncTableChunk(tableName);
+            });
+
+            Livewire.on('continue-single-table-sync', function (event) {
+                var tableName = (event.tableName) || (event[0] && event[0].tableName) || '';
+                var comp = getComponent();
+                if (comp) comp.syncTableChunk(tableName);
             });
         });
     </script>

@@ -11,6 +11,7 @@ class TableSyncService
 {
     private const CHUNK_SIZE = 1000;
     private const BATCH_INSERT_SIZE = 500;
+    private const PROGRESS_CHUNK_SIZE = 5000;
 
     public function __construct(
         private DatabaseConnectionService $connectionService,
@@ -70,6 +71,115 @@ class TableSyncService
         } catch (\Exception $e) {
             Log::error("Table sync error {$tableName}: " . $e->getMessage());
             return $this->createErrorResult($tableName, $e);
+        }
+    }
+
+    /**
+     * Sync a chunk of rows for a single table (used for progress tracking on large tables).
+     * Each call syncs PROGRESS_CHUNK_SIZE rows starting from $offset.
+     * First chunk (offset=0) truncates the target table.
+     */
+    public function syncTableChunk(string $tableName, array $sourceConfig, array $targetConfig, int $offset): array
+    {
+        $sourceConn = 'sync_source';
+        $targetConn = 'sync_target';
+
+        try {
+            $this->connectionService->registerConnection($sourceConn, $sourceConfig);
+            $this->connectionService->registerConnection($targetConn, $targetConfig);
+
+            $targetDriver = $targetConfig['driver'] ?? 'mysql';
+
+            $sourceRawTables = Schema::connection($sourceConn)->getTableListing();
+            $targetRawTables = Schema::connection($targetConn)->getTableListing();
+
+            $sourceTableName = $this->findActualTableName($tableName, $sourceRawTables);
+            $targetTableName = $this->findActualTableName($tableName, $targetRawTables);
+
+            if (!$sourceTableName || !$targetTableName) {
+                return [
+                    'success' => false,
+                    'message' => "Could not find table {$tableName} in source or target database",
+                    'done' => true,
+                ];
+            }
+
+            $unqualifiedTableName = $this->extractTableName($targetTableName);
+            $sourceConnection = DB::connection($sourceConn);
+            $targetConnection = DB::connection($targetConn);
+
+            // On first chunk, truncate target table
+            if ($offset === 0) {
+                if ($targetDriver === 'pgsql') {
+                    $targetConnection->statement('SET session_replication_role = replica');
+                    try {
+                        $this->truncateTable($targetConnection, $unqualifiedTableName);
+                    } finally {
+                        $this->resetPostgreSQLRole($targetConnection);
+                    }
+                } else {
+                    Schema::connection($targetConn)->disableForeignKeyConstraints();
+                    try {
+                        $targetConnection->table($unqualifiedTableName)->truncate();
+                    } finally {
+                        Schema::connection($targetConn)->enableForeignKeyConstraints();
+                    }
+                }
+            }
+
+            // Get order column for consistent pagination
+            $columns = Schema::connection($sourceConn)->getColumnListing($sourceTableName);
+            $orderByColumn = !empty($columns) ? $columns[0] : null;
+
+            // Fetch chunk of rows using offset pagination
+            $query = $sourceConnection->table($sourceTableName);
+            if ($orderByColumn) {
+                $query = $query->orderBy($orderByColumn);
+            }
+            $rows = $query->skip($offset)->take(self::PROGRESS_CHUNK_SIZE)->get();
+
+            $rowCount = $rows->count();
+
+            if ($rowCount > 0) {
+                $data = $rows->map(fn($r) => (array) $r)->toArray();
+
+                if ($targetDriver === 'pgsql') {
+                    $targetConnection->statement('SET session_replication_role = replica');
+                    try {
+                        foreach (array_chunk($data, self::BATCH_INSERT_SIZE) as $batch) {
+                            $targetConnection->table($unqualifiedTableName)->insert($batch);
+                        }
+                    } finally {
+                        $this->resetPostgreSQLRole($targetConnection);
+                    }
+                } else {
+                    Schema::connection($targetConn)->disableForeignKeyConstraints();
+                    try {
+                        foreach (array_chunk($data, self::BATCH_INSERT_SIZE) as $batch) {
+                            $targetConnection->table($unqualifiedTableName)->insert($batch);
+                        }
+                    } finally {
+                        Schema::connection($targetConn)->enableForeignKeyConstraints();
+                    }
+                }
+            }
+
+            $newOffset = $offset + $rowCount;
+            $done = $rowCount < self::PROGRESS_CHUNK_SIZE;
+
+            return [
+                'success' => true,
+                'synced' => $rowCount,
+                'offset' => $newOffset,
+                'done' => $done,
+            ];
+        } catch (\Exception $e) {
+            Log::error("Table chunk sync error {$tableName}: " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => "Chunk sync failed for {$tableName}: " . $e->getMessage(),
+                'done' => true,
+            ];
         }
     }
 

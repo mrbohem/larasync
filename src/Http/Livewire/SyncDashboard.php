@@ -4,6 +4,7 @@ namespace MrBohem\Larasync\Http\Livewire;
 
 use Livewire\Component;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use MrBohem\Larasync\Services\DatabaseConnectionService;
 use MrBohem\Larasync\Services\TableComparisonService;
@@ -59,6 +60,11 @@ class SyncDashboard extends Component
     public $tables_to_sync = [];
     public $sync_completed_count = 0;
     public $sync_total_count = 0;
+
+    // ── Single-Table Chunked Sync Progress ─────────────────────────
+    public $single_sync_table = null;
+    public $single_sync_offset = 0;
+    public $single_sync_total = 0;
 
     // ── Services ───────────────────────────────────────────────────
     private DatabaseConnectionService $connectionService;
@@ -248,7 +254,72 @@ class SyncDashboard extends Component
 
         // Re-run comparison to show updated status
         $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
+        $this->fixComparisonRowCount($tableName, $sourceConfig, $targetConfig);
         $this->syncing = false;
+    }
+
+    public function syncSingleTable($tableName)
+    {
+        if ($this->single_sync_table || $this->sync_in_progress) {
+            return; // Already syncing
+        }
+
+        $sourceRows = $this->comparison[$tableName]['rows1'] ?? 0;
+
+        if ($sourceRows <= 20000) {
+            // Small table - use existing single-request sync
+            $this->syncTable($tableName);
+            return;
+        }
+
+        // Large table - start chunked sync with progress
+        $this->increaseExecutionTime(300);
+        $this->single_sync_table = $tableName;
+        $this->single_sync_offset = 0;
+        $this->single_sync_total = $sourceRows;
+        $this->logs[] = "🔄 Syncing table: {$tableName} ({$sourceRows} rows, chunked)...";
+
+        $this->dispatch('start-single-table-sync', tableName: $tableName);
+    }
+
+    public function syncTableChunk($tableName)
+    {
+        $this->increaseExecutionTime(300);
+
+        $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
+        $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
+
+        $result = $this->syncService->syncTableChunk(
+            $tableName,
+            $sourceConfig,
+            $targetConfig,
+            $this->single_sync_offset
+        );
+
+        if (!$result['success']) {
+            $this->logs[] = "❌ {$result['message']}";
+            $this->single_sync_table = null;
+            $this->single_sync_offset = 0;
+            $this->single_sync_total = 0;
+            return;
+        }
+
+        $this->single_sync_offset = $result['offset'];
+
+        if ($result['done']) {
+            $this->logs[] = "✅ Synced {$this->single_sync_offset} rows to {$tableName}";
+            $this->synced_tables[] = $tableName;
+
+            // Re-run comparison to show updated status
+            $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
+            $this->fixComparisonRowCount($tableName, $sourceConfig, $targetConfig);
+
+            $this->single_sync_table = null;
+            $this->single_sync_offset = 0;
+            $this->single_sync_total = 0;
+        } else {
+            $this->dispatch('continue-single-table-sync', tableName: $tableName);
+        }
     }
 
     public function syncAllTables()
@@ -329,6 +400,9 @@ class SyncDashboard extends Component
         $this->tables_to_sync = [];
         $this->sync_completed_count = 0;
         $this->sync_total_count = 0;
+        $this->single_sync_table = null;
+        $this->single_sync_offset = 0;
+        $this->single_sync_total = 0;
         $this->checkDbStatus();
         $this->updateLabels();
     }
@@ -346,6 +420,34 @@ class SyncDashboard extends Component
     // ────────────────────────────────────────────────────────────────
     //  Helpers
     // ────────────────────────────────────────────────────────────────
+
+    /**
+     * Fix comparison row counts for a specific table using exact COUNT(*).
+     * MySQL's information_schema.TABLES.TABLE_ROWS returns approximate InnoDB estimates
+     * which can be stale after bulk inserts (e.g. 40,000 instead of 40,007).
+     */
+    private function fixComparisonRowCount(string $tableName, array $sourceConfig, array $targetConfig): void
+    {
+        if (!isset($this->comparison[$tableName])) {
+            return;
+        }
+
+        try {
+            $this->connectionService->registerConnection('sync_source', $sourceConfig);
+            $this->connectionService->registerConnection('sync_target', $targetConfig);
+
+            $sourceCount = (int) DB::connection('sync_source')->table($tableName)->count();
+            $targetCount = (int) DB::connection('sync_target')->table($tableName)->count();
+
+            $this->comparison[$tableName]['rows1'] = $sourceCount;
+            $this->comparison[$tableName]['rows2'] = $targetCount;
+            $this->comparison[$tableName]['diff'] = $sourceCount - $targetCount;
+            $this->comparison[$tableName]['action'] = $sourceCount > $targetCount ? 'sync' 
+                : ($sourceCount < $targetCount ? 'update' : 'equal');
+        } catch (\Exception $e) {
+            // Silently ignore - approximate counts are better than no counts
+        }
+    }
 
     /**
      * Build a connection config array from the current Livewire form properties.
