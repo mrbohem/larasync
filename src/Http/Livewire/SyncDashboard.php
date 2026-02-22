@@ -451,6 +451,12 @@ class SyncDashboard extends Component
             $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
             $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
             $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
+
+            // Fix all tables with exact COUNT(*) — InnoDB estimates are stale after truncate+insert
+            foreach (array_keys($this->comparison) as $table) {
+                $this->fixComparisonRowCount($table, $sourceConfig, $targetConfig);
+            }
+
             $this->logs[] = '📊 Row counts refreshed';
         } catch (\Exception $e) {
             $this->logs[] = '⚠️ Could not refresh row counts: ' . $e->getMessage();
