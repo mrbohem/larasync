@@ -375,7 +375,22 @@
                                             </svg>
                                         </div>
                                     @endif
-                                    <span class="font-mono font-medium text-slate-800 truncate">{{ $tbl }}</span>
+                                    @if($current_syncing_table === $tbl && $single_sync_table === $tbl && $single_sync_total > 0)
+                                        <div class="flex-1 min-w-0">
+                                            <span class="font-mono font-medium text-slate-800 truncate block">{{ $tbl }}</span>
+                                            <div class="flex items-center gap-2 mt-1">
+                                                <div class="flex-1 h-1 bg-amber-200 rounded-full overflow-hidden">
+                                                    <div class="h-full bg-amber-500 rounded-full transition-all duration-300" 
+                                                         style="width: {{ $single_sync_total > 0 ? round(($single_sync_offset / $single_sync_total) * 100) : 0 }}%"></div>
+                                                </div>
+                                                <span class="text-xs text-amber-600 font-mono whitespace-nowrap">
+                                                    {{ number_format($single_sync_offset) }}/{{ number_format($single_sync_total) }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    @else
+                                        <span class="font-mono font-medium text-slate-800 truncate">{{ $tbl }}</span>
+                                    @endif
                                 </div>
                             @endforeach
                         </div>

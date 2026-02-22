@@ -301,6 +301,11 @@ class SyncDashboard extends Component
             $this->single_sync_table = null;
             $this->single_sync_offset = 0;
             $this->single_sync_total = 0;
+
+            // If in sync-all mode, advance to next table despite error
+            if ($this->sync_in_progress) {
+                $this->completeCurrentTableSync($tableName);
+            }
             return;
         }
 
@@ -317,6 +322,11 @@ class SyncDashboard extends Component
             $this->single_sync_table = null;
             $this->single_sync_offset = 0;
             $this->single_sync_total = 0;
+
+            // If in sync-all mode, advance to next table
+            if ($this->sync_in_progress) {
+                $this->completeCurrentTableSync($tableName);
+            }
         } else {
             $this->dispatch('continue-single-table-sync', tableName: $tableName);
         }
@@ -365,7 +375,29 @@ class SyncDashboard extends Component
     public function syncNextTable($tableName)
     {
         $this->current_syncing_table = $tableName;
-        $this->syncTable($tableName);
+
+        $sourceRows = $this->comparison[$tableName]['rows1'] ?? 0;
+
+        if ($sourceRows > 20000) {
+            // Large table - use chunked sync with progress
+            $this->increaseExecutionTime(300);
+            $this->single_sync_table = $tableName;
+            $this->single_sync_offset = 0;
+            $this->single_sync_total = $sourceRows;
+            $this->logs[] = "🔄 Syncing table: {$tableName} ({$sourceRows} rows, chunked)...";
+            $this->dispatch('start-single-table-sync', tableName: $tableName);
+        } else {
+            // Small table - sync in one request
+            $this->syncTable($tableName);
+            $this->completeCurrentTableSync($tableName);
+        }
+    }
+
+    /**
+     * Advance sync-all progress after a table finishes syncing.
+     */
+    private function completeCurrentTableSync(string $tableName): void
+    {
         $this->sync_completed_count++;
 
         if ($this->sync_completed_count >= $this->sync_total_count) {
