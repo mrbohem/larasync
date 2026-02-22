@@ -66,6 +66,9 @@ class SyncDashboard extends Component
     public $single_sync_offset = 0;
     public $single_sync_total = 0;
 
+    // ── Stop / Cancel ──────────────────────────────────────────────
+    public $sync_cancelled = false;
+
     // ── Services ───────────────────────────────────────────────────
     private DatabaseConnectionService $connectionService;
     private TableComparisonService $comparisonService;
@@ -264,6 +267,8 @@ class SyncDashboard extends Component
             return; // Already syncing
         }
 
+        $this->sync_cancelled = false;
+
         $sourceRows = $this->comparison[$tableName]['rows1'] ?? 0;
 
         if ($sourceRows <= 20000) {
@@ -284,6 +289,10 @@ class SyncDashboard extends Component
 
     public function syncTableChunk($tableName)
     {
+        if ($this->sync_cancelled) {
+            return;
+        }
+
         $this->increaseExecutionTime(300);
 
         $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
@@ -339,6 +348,7 @@ class SyncDashboard extends Component
             return;
         }
 
+        $this->sync_cancelled = false;
         $this->increaseExecutionTime(600); // 10 minutes for full sync
         $tables = array_keys($this->comparison);
 
@@ -374,6 +384,10 @@ class SyncDashboard extends Component
 
     public function syncNextTable($tableName)
     {
+        if ($this->sync_cancelled) {
+            return;
+        }
+
         $this->current_syncing_table = $tableName;
 
         $sourceRows = $this->comparison[$tableName]['rows1'] ?? 0;
@@ -418,6 +432,32 @@ class SyncDashboard extends Component
     }
 
     // ────────────────────────────────────────────────────────────────
+    //  Stop / Cancel Sync
+    // ────────────────────────────────────────────────────────────────
+
+    public function stopSync()
+    {
+        $this->sync_cancelled = true;
+        $this->sync_in_progress = false;
+        $this->current_syncing_table = null;
+        $this->single_sync_table = null;
+        $this->single_sync_offset = 0;
+        $this->single_sync_total = 0;
+        $this->logs[] = '⛔ Sync stopped by user';
+        $this->dispatch('sync-stopped');
+
+        // Re-run comparison to show actual current row counts
+        try {
+            $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
+            $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
+            $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
+            $this->logs[] = '📊 Row counts refreshed';
+        } catch (\Exception $e) {
+            $this->logs[] = '⚠️ Could not refresh row counts: ' . $e->getMessage();
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────
     //  Clear / Reset
     // ────────────────────────────────────────────────────────────────
 
@@ -435,6 +475,7 @@ class SyncDashboard extends Component
         $this->single_sync_table = null;
         $this->single_sync_offset = 0;
         $this->single_sync_total = 0;
+        $this->sync_cancelled = false;
         $this->checkDbStatus();
         $this->updateLabels();
     }

@@ -101,6 +101,33 @@ it('clears all state when clear is called', function () {
         ->assertSet('sync_total_count', 0);
 });
 
+// ── Stop Sync ─────────────────────────────────────────────────
+
+it('stops sync and resets progress state', function () {
+    Livewire::test('sync-dashboard')
+        ->set('sync_in_progress', true)
+        ->set('current_syncing_table', 'users')
+        ->set('single_sync_table', 'users')
+        ->set('single_sync_offset', 500)
+        ->set('single_sync_total', 1000)
+        ->set('logs', ['🔄 Syncing table: users...'])
+        ->call('stopSync')
+        ->assertSet('sync_cancelled', true)
+        ->assertSet('sync_in_progress', false)
+        ->assertSet('current_syncing_table', null)
+        ->assertSet('single_sync_table', null)
+        ->assertSet('single_sync_offset', 0)
+        ->assertSet('single_sync_total', 0)
+        ->assertDispatched('sync-stopped');
+});
+
+it('clears sync_cancelled flag on clear', function () {
+    Livewire::test('sync-dashboard')
+        ->set('sync_cancelled', true)
+        ->call('clear')
+        ->assertSet('sync_cancelled', false);
+});
+
 // ── Start Sync Direction ──────────────────────────────────────
 
 it('sets sync direction and starts comparison on startSync', function () {

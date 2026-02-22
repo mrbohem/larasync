@@ -340,8 +340,34 @@
                                     <p class="text-xs text-slate-600">{{ $sync_completed_count }} / {{ $sync_total_count }} completed</p>
                                 </div>
                             </div>
-                            <div class="text-xl font-bold text-indigo-600">
-                                {{ $sync_total_count > 0 ? round(($sync_completed_count / $sync_total_count) * 100) : 0 }}%
+                            <div class="flex items-center gap-3">
+                                <div class="text-xl font-bold text-indigo-600">
+                                    {{ $sync_total_count > 0 ? round(($sync_completed_count / $sync_total_count) * 100) : 0 }}%
+                                </div>
+                                <button wire:click="stopSync"
+                                    x-data="{ stopping: false }"
+                                    x-on:click="stopping = true"
+                                    x-bind:disabled="stopping"
+                                    class="px-3.5 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors inline-flex items-center gap-1.5 disabled:opacity-70 disabled:cursor-not-allowed">
+                                    <template x-if="!stopping">
+                                        <span class="inline-flex items-center gap-1.5">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"></path>
+                                            </svg>
+                                            Stop
+                                        </span>
+                                    </template>
+                                    <template x-if="stopping">
+                                        <span class="inline-flex items-center gap-1.5">
+                                            <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                            </svg>
+                                            Stopping...
+                                        </span>
+                                    </template>
+                                </button>
                             </div>
                         </div>
 
@@ -468,6 +494,32 @@
                                                 <span class="text-xs text-slate-500 font-mono">
                                                     {{ number_format($single_sync_offset) }} / {{ number_format($single_sync_total) }}
                                                 </span>
+                                                @if(!$sync_in_progress)
+                                                    <button wire:click="stopSync"
+                                                        x-data="{ stopping: false }"
+                                                        x-on:click="stopping = true"
+                                                        x-bind:disabled="stopping"
+                                                        class="mt-1 px-3 py-1.5 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors inline-flex items-center gap-1 disabled:opacity-70 disabled:cursor-not-allowed">
+                                                        <template x-if="!stopping">
+                                                            <span class="inline-flex items-center gap-1">
+                                                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"></path>
+                                                                </svg>
+                                                                Stop
+                                                            </span>
+                                                        </template>
+                                                        <template x-if="stopping">
+                                                            <span class="inline-flex items-center gap-1">
+                                                                <svg class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                                                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                                                </svg>
+                                                                Stopping...
+                                                            </span>
+                                                        </template>
+                                                    </button>
+                                                @endif
                                             </div>
                                         @elseif($data['diff'] > 0)
                                             <button wire:click="syncSingleTable('{{ $table }}')" wire:target="syncSingleTable('{{ $table }}')" wire:loading.attr="disabled" @if($single_sync_table) disabled @endif class="relative px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
@@ -614,6 +666,7 @@
         document.addEventListener('livewire:init', function () {
             var syncQueue = [];
             var syncIdx = 0;
+            var cancelled = false;
 
             function getComponent() {
                 var el = document.querySelector('[wire\\:id]');
@@ -621,6 +674,7 @@
             }
 
             function runNext() {
+                if (cancelled) return;
                 if (syncIdx < syncQueue.length) {
                     var table = syncQueue[syncIdx];
                     syncIdx++;
@@ -630,28 +684,38 @@
             }
 
             Livewire.on('start-sequential-sync', function (event) {
+                cancelled = false;
                 syncQueue = (event.tables) || (event[0] && event[0].tables) || [];
                 syncIdx = 0;
                 runNext();
             });
 
             Livewire.on('table-sync-complete', function () {
-                runNext();
+                if (!cancelled) runNext();
             });
 
             Livewire.on('all-tables-synced', function () {
+                syncQueue = [];
+                syncIdx = 0;
+                cancelled = false;
+            });
+
+            Livewire.on('sync-stopped', function () {
+                cancelled = true;
                 syncQueue = [];
                 syncIdx = 0;
             });
 
             // Single-table chunked sync
             Livewire.on('start-single-table-sync', function (event) {
+                cancelled = false;
                 var tableName = (event.tableName) || (event[0] && event[0].tableName) || '';
                 var comp = getComponent();
                 if (comp) comp.syncTableChunk(tableName);
             });
 
             Livewire.on('continue-single-table-sync', function (event) {
+                if (cancelled) return;
                 var tableName = (event.tableName) || (event[0] && event[0].tableName) || '';
                 var comp = getComponent();
                 if (comp) comp.syncTableChunk(tableName);
