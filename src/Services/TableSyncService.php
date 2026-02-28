@@ -16,6 +16,7 @@ class TableSyncService
     public function __construct(
         private DatabaseConnectionService $connectionService,
         private TableComparisonService $comparisonService,
+        private ?TableSchemaService $schemaService = null,
     ) {
     }
 
@@ -23,7 +24,7 @@ class TableSyncService
      * Sync a single table: truncate target, stream copy all rows from source.
      * Uses chunked queries to avoid memory exhaustion on large tables.
      */
-    public function syncTable(string $tableName, array $sourceConfig, array $targetConfig): SyncResult
+    public function syncTable(string $tableName, array $sourceConfig, array $targetConfig, bool $createMissingTable = false): SyncResult
     {
         $sourceConn = 'sync_source';
         $targetConn = 'sync_target';
@@ -42,12 +43,35 @@ class TableSyncService
             $sourceTableName = $this->findActualTableName($tableName, $sourceRawTables);
             $targetTableName = $this->findActualTableName($tableName, $targetRawTables);
 
-            if (!$sourceTableName || !$targetTableName) {
+            if (!$sourceTableName) {
                 return new SyncResult(
                     success: false,
                     rowCount: 0,
-                    message: "Sync failed: Could not find table {$tableName} in source or target database",
+                    message: "Sync failed: Could not find table {$tableName} in source database",
                 );
+            }
+
+            // Handle missing target table
+            if (!$targetTableName) {
+                if ($createMissingTable && $this->schemaService) {
+                    $createResult = $this->schemaService->createTableFromSource($sourceConfig, $targetConfig, $sourceTableName);
+                    if (!$createResult['success']) {
+                        return new SyncResult(
+                            success: false,
+                            rowCount: 0,
+                            message: "Sync failed: {$createResult['message']}",
+                        );
+                    }
+                    // Re-fetch target tables after creation
+                    $targetRawTables = Schema::connection($targetConn)->getTableListing();
+                    $targetTableName = $this->findActualTableName($tableName, $targetRawTables) ?? $tableName;
+                } else {
+                    return new SyncResult(
+                        success: false,
+                        rowCount: 0,
+                        message: "Sync failed: Table {$tableName} does not exist in target database",
+                    );
+                }
             }
 
             // Extract unqualified table name once for all operations
@@ -79,7 +103,7 @@ class TableSyncService
      * Each call syncs PROGRESS_CHUNK_SIZE rows starting from $offset.
      * First chunk (offset=0) truncates the target table.
      */
-    public function syncTableChunk(string $tableName, array $sourceConfig, array $targetConfig, int $offset): array
+    public function syncTableChunk(string $tableName, array $sourceConfig, array $targetConfig, int $offset, bool $createMissingTable = false): array
     {
         $sourceConn = 'sync_source';
         $targetConn = 'sync_target';
@@ -96,12 +120,34 @@ class TableSyncService
             $sourceTableName = $this->findActualTableName($tableName, $sourceRawTables);
             $targetTableName = $this->findActualTableName($tableName, $targetRawTables);
 
-            if (!$sourceTableName || !$targetTableName) {
+            if (!$sourceTableName) {
                 return [
                     'success' => false,
-                    'message' => "Could not find table {$tableName} in source or target database",
+                    'message' => "Could not find table {$tableName} in source database",
                     'done' => true,
                 ];
+            }
+
+            // Handle missing target table
+            if (!$targetTableName) {
+                if ($createMissingTable && $this->schemaService) {
+                    $createResult = $this->schemaService->createTableFromSource($sourceConfig, $targetConfig, $sourceTableName);
+                    if (!$createResult['success']) {
+                        return [
+                            'success' => false,
+                            'message' => $createResult['message'],
+                            'done' => true,
+                        ];
+                    }
+                    $targetRawTables = Schema::connection($targetConn)->getTableListing();
+                    $targetTableName = $this->findActualTableName($tableName, $targetRawTables) ?? $tableName;
+                } else {
+                    return [
+                        'success' => false,
+                        'message' => "Table {$tableName} does not exist in target database",
+                        'done' => true,
+                    ];
+                }
             }
 
             $unqualifiedTableName = $this->extractTableName($targetTableName);

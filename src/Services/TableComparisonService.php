@@ -68,11 +68,15 @@ class TableComparisonService
 
             $diff = $rows1 - $rows2;
 
+            // A table is missing in target if it exists in source but not in target's table map
+            $missingInTarget = $sourceTable !== null && $targetTable === null;
+
             $comparison[$table] = [
                 'rows1' => $rows1,
                 'rows2' => $rows2,
                 'diff' => $diff,
                 'action' => $diff > 0 ? 'sync' : ($diff < 0 ? 'update' : 'equal'),
+                'missing_in_target' => $missingInTarget,
             ];
         }
 

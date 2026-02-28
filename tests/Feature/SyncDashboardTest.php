@@ -244,3 +244,70 @@ it('sets labels on mount', function () {
         ->assertSet('db2_label', fn($v) => in_array($v, ['Local', 'Cloud']));
 });
 
+// ── Missing Tables ────────────────────────────────────────────
+
+it('shows missing tables modal when sync-all detects missing tables', function () {
+    Livewire::test('sync-dashboard')
+        ->set('db1_connected', true)
+        ->set('db2_connected', true)
+        ->set('comparison', [
+            'users' => ['rows1' => 5, 'rows2' => 0, 'diff' => 5, 'action' => 'sync', 'missing_in_target' => true],
+            'posts' => ['rows1' => 3, 'rows2' => 3, 'diff' => 0, 'action' => 'equal', 'missing_in_target' => false],
+        ])
+        ->call('syncAllTables')
+        ->assertSet('show_missing_tables_modal', true)
+        ->assertSet('missing_tables', ['users'])
+        ->assertSet('sync_in_progress', false); // Should NOT start syncing yet
+});
+
+it('skips missing tables when user chooses skip', function () {
+    Livewire::test('sync-dashboard')
+        ->set('db1_connected', true)
+        ->set('db2_connected', true)
+        ->set('comparison', [
+            'users' => ['rows1' => 5, 'rows2' => 0, 'diff' => 5, 'action' => 'sync', 'missing_in_target' => true],
+            'posts' => ['rows1' => 3, 'rows2' => 3, 'diff' => 0, 'action' => 'equal', 'missing_in_target' => false],
+        ])
+        ->set('show_missing_tables_modal', true)
+        ->set('missing_tables', ['users'])
+        ->call('handleMissingTablesChoice', 'cancel')
+        ->assertSet('show_missing_tables_modal', false)
+        ->assertSet('missing_tables', []);
+});
+
+it('shows create confirmation for single missing table sync', function () {
+    Livewire::test('sync-dashboard')
+        ->set('db1_connected', true)
+        ->set('db2_connected', true)
+        ->set('db1_driver', 'sqlite')
+        ->set('db1_database', ':memory:')
+        ->set('db2_driver', 'sqlite')
+        ->set('db2_database', ':memory:')
+        ->set('comparison', [
+            'users' => ['rows1' => 5, 'rows2' => 0, 'diff' => 5, 'action' => 'sync', 'missing_in_target' => true],
+        ])
+        ->call('syncSingleTable', 'users')
+        ->assertSet('pending_create_table', 'users');
+});
+
+it('clears missing table state on clear', function () {
+    Livewire::test('sync-dashboard')
+        ->set('missing_tables', ['users'])
+        ->set('show_missing_tables_modal', true)
+        ->set('pending_create_table', 'users')
+        ->set('pending_create_preview', [['name' => 'id', 'type' => 'integer']])
+        ->call('clear')
+        ->assertSet('missing_tables', [])
+        ->assertSet('show_missing_tables_modal', false)
+        ->assertSet('pending_create_table', null)
+        ->assertSet('pending_create_preview', []);
+});
+
+it('cancels single table creation', function () {
+    Livewire::test('sync-dashboard')
+        ->set('pending_create_table', 'users')
+        ->set('pending_create_preview', [['name' => 'id', 'type' => 'integer']])
+        ->call('cancelCreateTable')
+        ->assertSet('pending_create_table', null)
+        ->assertSet('pending_create_preview', []);
+});

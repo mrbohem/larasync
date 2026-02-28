@@ -10,6 +10,7 @@ use MrBohem\Larasync\Services\DatabaseConnectionService;
 use MrBohem\Larasync\Services\TableComparisonService;
 use MrBohem\Larasync\Services\TableSyncService;
 use MrBohem\Larasync\Services\TableDependencyService;
+use MrBohem\Larasync\Services\TableSchemaService;
 
 class SyncDashboard extends Component
 {
@@ -69,17 +70,25 @@ class SyncDashboard extends Component
     // ── Stop / Cancel ──────────────────────────────────────────────
     public $sync_cancelled = false;
 
+    // ── Missing Tables ─────────────────────────────────────────────
+    public $missing_tables = [];
+    public $show_missing_tables_modal = false;
+    public $pending_create_table = null;
+    public $pending_create_preview = [];
+
     // ── Services ───────────────────────────────────────────────────
     private DatabaseConnectionService $connectionService;
     private TableComparisonService $comparisonService;
     private TableSyncService $syncService;
     private TableDependencyService $dependencyService;
+    private TableSchemaService $schemaService;
 
     public function boot()
     {
         $this->connectionService = new DatabaseConnectionService();
         $this->comparisonService = new TableComparisonService($this->connectionService);
-        $this->syncService = new TableSyncService($this->connectionService, $this->comparisonService);
+        $this->schemaService = new TableSchemaService($this->connectionService);
+        $this->syncService = new TableSyncService($this->connectionService, $this->comparisonService, $this->schemaService);
         $this->dependencyService = new TableDependencyService($this->connectionService);
     }
 
@@ -232,7 +241,7 @@ class SyncDashboard extends Component
         }
     }
 
-    public function syncTable($tableName)
+    public function syncTable($tableName, $createMissingTable = false)
     {
         if (!$this->db1_connected || !$this->db2_connected) {
             $this->addError('general', 'Please test both connections first!');
@@ -246,11 +255,15 @@ class SyncDashboard extends Component
         $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
         $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
 
-        $result = $this->syncService->syncTable($tableName, $sourceConfig, $targetConfig);
+        $result = $this->syncService->syncTable($tableName, $sourceConfig, $targetConfig, $createMissingTable);
 
         if ($result->success) {
             $this->logs[] = "✅ {$result->message}";
             $this->synced_tables[] = $tableName;
+            // Clear missing flag after successful creation
+            if (isset($this->comparison[$tableName])) {
+                $this->comparison[$tableName]['missing_in_target'] = false;
+            }
         } else {
             $this->logs[] = "❌ {$result->message}";
         }
@@ -265,6 +278,13 @@ class SyncDashboard extends Component
     {
         if ($this->single_sync_table || $this->sync_in_progress) {
             return; // Already syncing
+        }
+
+        // Check if table is missing in target
+        $isMissing = $this->comparison[$tableName]['missing_in_target'] ?? false;
+        if ($isMissing) {
+            $this->showCreateTablePreview($tableName);
+            return;
         }
 
         $this->sync_cancelled = false;
@@ -348,9 +368,110 @@ class SyncDashboard extends Component
             return;
         }
 
+        // Check for missing tables
+        $this->missing_tables = [];
+        foreach ($this->comparison as $table => $data) {
+            if (!empty($data['missing_in_target'])) {
+                $this->missing_tables[] = $table;
+            }
+        }
+
+        if (!empty($this->missing_tables)) {
+            $this->show_missing_tables_modal = true;
+            return;
+        }
+
+        // No missing tables, proceed directly
+        $this->startSyncAllTables();
+    }
+
+    /**
+     * Handle user's choice for missing tables during Sync All.
+     */
+    public function handleMissingTablesChoice(string $action)
+    {
+        $this->show_missing_tables_modal = false;
+
+        if ($action === 'cancel') {
+            $this->logs[] = '⛔ Sync cancelled by user';
+            $this->missing_tables = [];
+            return;
+        }
+
+        if ($action === 'create') {
+            // Create all missing tables first
+            $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
+            $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
+
+            foreach ($this->missing_tables as $table) {
+                // Find the source table name (may be schema-qualified)
+                $result = $this->schemaService->createTableFromSource($sourceConfig, $targetConfig, $table);
+                if ($result['success']) {
+                    $this->logs[] = "✅ Created table: {$table}";
+                    if (isset($this->comparison[$table])) {
+                        $this->comparison[$table]['missing_in_target'] = false;
+                    }
+                } else {
+                    $this->logs[] = "❌ Failed to create table {$table}: {$result['message']}";
+                }
+            }
+
+            // Re-run comparison after creating tables
+            $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
+            $this->missing_tables = [];
+        }
+
+        if ($action === 'skip') {
+            $this->logs[] = '⚠️ Skipping ' . count($this->missing_tables) . ' missing table(s)';
+            $this->missing_tables = [];
+        }
+
+        // Proceed with sync (skip or create both lead to syncing)
+        $this->startSyncAllTables();
+    }
+
+    /**
+     * Show create table confirmation modal for single table sync.
+     */
+    public function showCreateTablePreview(string $tableName)
+    {
+        $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
+        $this->connectionService->registerConnection('preview_source', $sourceConfig);
+
+        $this->pending_create_table = $tableName;
+        $this->pending_create_preview = $this->schemaService->getTableColumns('preview_source', $tableName);
+    }
+
+    /**
+     * Confirm creation and sync of a single missing table.
+     */
+    public function confirmCreateAndSync(string $tableName)
+    {
+        $this->pending_create_table = null;
+        $this->pending_create_preview = [];
+
+        $this->logs[] = "🔧 Creating table: {$tableName}...";
+        $this->syncTable($tableName, createMissingTable: true);
+    }
+
+    /**
+     * Cancel single table creation.
+     */
+    public function cancelCreateTable()
+    {
+        $this->pending_create_table = null;
+        $this->pending_create_preview = [];
+        $this->logs[] = '⛔ Table creation cancelled';
+    }
+
+    /**
+     * Start the actual sync-all process (after missing table handling).
+     */
+    private function startSyncAllTables()
+    {
         $this->sync_cancelled = false;
         $this->increaseExecutionTime(600); // 10 minutes for full sync
-        $tables = array_keys($this->comparison);
+        $tables = array_keys(array_filter($this->comparison, fn($data) => empty($data['missing_in_target'])));
 
         // Get the target config to analyze dependencies
         $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
@@ -482,6 +603,10 @@ class SyncDashboard extends Component
         $this->single_sync_offset = 0;
         $this->single_sync_total = 0;
         $this->sync_cancelled = false;
+        $this->missing_tables = [];
+        $this->show_missing_tables_modal = false;
+        $this->pending_create_table = null;
+        $this->pending_create_preview = [];
         $this->checkDbStatus();
         $this->updateLabels();
     }

@@ -129,3 +129,58 @@ it('preserves data integrity after sync', function () {
         ->and($targetData[1]->name)->toBe('Bob')
         ->and($targetData[1]->email)->toBe('bob@test.com');
 });
+
+// ── createMissingTable flag ────────────────────────────────────
+
+it('creates missing target table when createMissingTable flag is true', function () {
+    $sourceConfig = $this->setupTestDatabase('sync_source_create1', $this->makeUserRows(3));
+
+    // Create target WITHOUT user table
+    $dbPath = tempnam(sys_get_temp_dir(), 'larasync_test_') . '.sqlite';
+    touch($dbPath);
+    $this->tempDbFiles[] = $dbPath;
+
+    $targetConfig = [
+        'driver' => 'sqlite',
+        'database' => $dbPath,
+        'prefix' => '',
+    ];
+
+    // Use a service with TableSchemaService injected
+    $connService = new \MrBohem\Larasync\Services\DatabaseConnectionService();
+    $compService = new \MrBohem\Larasync\Services\TableComparisonService($connService);
+    $schemaService = new \MrBohem\Larasync\Services\TableSchemaService($connService);
+    $syncService = new \MrBohem\Larasync\Services\TableSyncService($connService, $compService, $schemaService);
+
+    $result = $syncService->syncTable('users', $sourceConfig, $targetConfig, createMissingTable: true);
+
+    expect($result->success)->toBeTrue()
+        ->and($result->rowCount)->toBe(3)
+        ->and($result->message)->toContain('Synced 3 rows');
+
+    // Verify target now has the data
+    config()->set('database.connections.verify_target_create1', $targetConfig);
+    DB::purge('verify_target_create1');
+    $targetCount = DB::connection('verify_target_create1')->table('users')->count();
+    expect($targetCount)->toBe(3);
+});
+
+it('returns failure for missing target table when createMissingTable flag is false', function () {
+    $sourceConfig = $this->setupTestDatabase('sync_source_create2', $this->makeUserRows(3));
+
+    // Create target WITHOUT user table
+    $dbPath = tempnam(sys_get_temp_dir(), 'larasync_test_') . '.sqlite';
+    touch($dbPath);
+    $this->tempDbFiles[] = $dbPath;
+
+    $targetConfig = [
+        'driver' => 'sqlite',
+        'database' => $dbPath,
+        'prefix' => '',
+    ];
+
+    $result = $this->service->syncTable('users', $sourceConfig, $targetConfig, createMissingTable: false);
+
+    expect($result->success)->toBeFalse()
+        ->and($result->message)->toContain('does not exist in target database');
+});

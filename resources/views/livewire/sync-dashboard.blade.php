@@ -315,12 +315,18 @@
                         <div class="text-xs font-medium text-orange-600 uppercase tracking-wide mt-1">Needs Update</div>
                     </div>
                     <div class="bg-slate-50/50 border border-slate-200/50 rounded-xl p-4">
-                        <div class="text-3xl font-bold text-slate-700">{{ count(array_filter($comparison, fn($t) => $t['diff'] === 0)) }}</div>
+                        <div class="text-3xl font-bold text-slate-700">{{ count(array_filter($comparison, fn($t) => $t['diff'] === 0 && empty($t['missing_in_target']))) }}</div>
                         <div class="text-xs font-medium text-slate-600 uppercase tracking-wide mt-1">Match</div>
                     </div>
-                    <div class="bg-blue-50/50 border border-blue-200/50 rounded-xl p-4">
-                        <div class="text-3xl font-bold text-blue-700">{{ array_sum(array_map(fn($t) => abs($t['diff']), $comparison)) }}</div>
-                        <div class="text-xs font-medium text-blue-600 uppercase tracking-wide mt-1">Total Diff</div>
+                    @php $missingCount = count(array_filter($comparison, fn($t) => !empty($t['missing_in_target']))); @endphp
+                    <div class="bg-{{ $missingCount > 0 ? 'amber' : 'blue' }}-50/50 border border-{{ $missingCount > 0 ? 'amber' : 'blue' }}-200/50 rounded-xl p-4">
+                        @if($missingCount > 0)
+                            <div class="text-3xl font-bold text-amber-700">{{ $missingCount }}</div>
+                            <div class="text-xs font-medium text-amber-600 uppercase tracking-wide mt-1">Missing</div>
+                        @else
+                            <div class="text-3xl font-bold text-blue-700">{{ array_sum(array_map(fn($t) => abs($t['diff']), $comparison)) }}</div>
+                            <div class="text-xs font-medium text-blue-600 uppercase tracking-wide mt-1">Total Diff</div>
+                        @endif
                     </div>
                 </div>
 
@@ -448,8 +454,17 @@
                                         <div class="text-xs text-slate-500">rows</div>
                                     </td>
                                     <td class="px-5 py-3.5 text-center">
-                                        <div class="font-mono font-semibold text-sm text-slate-900">{{ number_format($data['rows2']) }}</div>
-                                        <div class="text-xs text-slate-500">rows</div>
+                                        @if(!empty($data['missing_in_target']))
+                                            <span class="inline-flex items-center gap-1.5 bg-amber-100/80 text-amber-700 px-3 py-1.5 rounded-lg font-medium text-sm">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                                                </svg>
+                                                Missing
+                                            </span>
+                                        @else
+                                            <div class="font-mono font-semibold text-sm text-slate-900">{{ number_format($data['rows2']) }}</div>
+                                            <div class="text-xs text-slate-500">rows</div>
+                                        @endif
                                     </td>
                                     <td class="px-5 py-3.5 text-center">
                                         @if($data['diff'] > 0)
@@ -521,6 +536,13 @@
                                                     </button>
                                                 @endif
                                             </div>
+                                        @elseif(!empty($data['missing_in_target']))
+                                            <button wire:click="syncSingleTable('{{ $table }}')" @if($single_sync_table) disabled @endif class="relative px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed inline-flex items-center gap-1.5">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                                </svg>
+                                                Create & Sync
+                                            </button>
                                         @elseif($data['diff'] > 0)
                                             <button wire:click="syncSingleTable('{{ $table }}')" wire:target="syncSingleTable('{{ $table }}')" wire:loading.attr="disabled" @if($single_sync_table) disabled @endif class="relative px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-70 disabled:cursor-not-allowed">
                                                 <span wire:target="syncSingleTable('{{ $table }}')" wire:loading.remove>Sync</span>
@@ -606,6 +628,124 @@
                     </div>
                 </div>
             </div>
+
+            {{-- Missing Tables Modal --}}
+            @if($show_missing_tables_modal)
+                <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-xl p-8 max-w-2xl w-full shadow-xl">
+                        <div class="text-center mb-6">
+                            <div class="w-14 h-14 bg-amber-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+                                <svg class="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                                </svg>
+                            </div>
+                            <h2 class="text-xl font-semibold text-slate-900 mb-2">Missing Tables Detected</h2>
+                            <p class="text-sm text-slate-600">
+                                {{ count($missing_tables) }} table(s) exist in the source but not in the target database
+                            </p>
+                        </div>
+
+                        <div class="bg-amber-50/50 border border-amber-200/50 rounded-xl p-4 mb-6 max-h-48 overflow-y-auto">
+                            <div class="grid sm:grid-cols-2 gap-2">
+                                @foreach($missing_tables as $mt)
+                                    <div class="flex items-center gap-2 px-3 py-2 bg-white rounded-lg border border-amber-200 text-sm">
+                                        <svg class="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                                        </svg>
+                                        <span class="font-mono font-medium text-slate-800 truncate">{{ $mt }}</span>
+                                        <span class="text-xs text-slate-500 ml-auto">{{ number_format($comparison[$mt]['rows1'] ?? 0) }} rows</span>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+
+                        <div class="space-y-2.5">
+                            <button wire:click="handleMissingTablesChoice('create')" wire:loading.attr="disabled"
+                                class="w-full px-4 py-3 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                Create All Missing Tables & Sync
+                            </button>
+                            <button wire:click="handleMissingTablesChoice('skip')" wire:loading.attr="disabled"
+                                class="w-full px-4 py-2.5 text-sm font-medium bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                                Skip Missing Tables & Sync Existing Only
+                            </button>
+                            <button wire:click="handleMissingTablesChoice('cancel')" wire:loading.attr="disabled"
+                                class="w-full px-4 py-2.5 text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
+            {{-- Single Table Create Confirmation Modal --}}
+            @if($pending_create_table)
+                <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-xl p-8 max-w-2xl w-full shadow-xl">
+                        <div class="text-center mb-6">
+                            <div class="w-14 h-14 bg-amber-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+                                <svg class="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                            </div>
+                            <h2 class="text-xl font-semibold text-slate-900 mb-2">Create Table: {{ $pending_create_table }}</h2>
+                            <p class="text-sm text-slate-600">
+                                This table doesn't exist in the target database. Review the structure below and confirm creation.
+                            </p>
+                        </div>
+
+                        @if(!empty($pending_create_preview))
+                            <div class="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden mb-6">
+                                <div class="px-4 py-3 bg-slate-100 border-b border-slate-200">
+                                    <h4 class="text-xs font-semibold text-slate-700 uppercase tracking-wide">Table Structure</h4>
+                                </div>
+                                <div class="max-h-64 overflow-y-auto">
+                                    <table class="w-full text-sm">
+                                        <thead>
+                                            <tr class="border-b border-slate-200">
+                                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Column</th>
+                                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Type</th>
+                                                <th class="px-4 py-2 text-center text-xs font-semibold text-slate-600">Nullable</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-slate-100">
+                                            @foreach($pending_create_preview as $col)
+                                                <tr class="hover:bg-slate-50/50">
+                                                    <td class="px-4 py-2 font-mono text-xs text-slate-900">{{ $col['name'] ?? 'unknown' }}</td>
+                                                    <td class="px-4 py-2 font-mono text-xs text-indigo-600">{{ $col['type_name'] ?? $col['type'] ?? 'unknown' }}</td>
+                                                    <td class="px-4 py-2 text-center">
+                                                        @if(!empty($col['nullable']))
+                                                            <span class="text-xs text-slate-400">yes</span>
+                                                        @else
+                                                            <span class="text-xs text-slate-700 font-medium">no</span>
+                                                        @endif
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        @endif
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <button wire:click="cancelCreateTable" wire:loading.attr="disabled"
+                                class="px-4 py-2.5 text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                                Cancel
+                            </button>
+                            <button wire:click="confirmCreateAndSync('{{ $pending_create_table }}')" wire:loading.attr="disabled"
+                                class="px-4 py-2.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                Create & Sync
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            @endif
         @endif
 
     @elseif($db1_configured || $db2_configured)

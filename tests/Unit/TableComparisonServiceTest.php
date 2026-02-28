@@ -85,3 +85,39 @@ it('excludes tables listed in ignored_tables config', function () {
 
     expect($result)->not->toHaveKey('users');
 });
+
+// ── missing_in_target flag ─────────────────────────────────────
+
+it('marks tables missing in target with missing_in_target flag', function () {
+    // Source has 'users' table, target has NO tables at all
+    $sourceConfig = $this->setupTestDatabase('compare_source6', $this->makeUserRows(3));
+
+    $dbPath = tempnam(sys_get_temp_dir(), 'larasync_test_') . '.sqlite';
+    touch($dbPath);
+    $this->tempDbFiles[] = $dbPath;
+
+    $targetConfig = [
+        'driver' => 'sqlite',
+        'database' => $dbPath,
+        'prefix' => '',
+    ];
+
+    config()->set('database.connections.compare_target6', $targetConfig);
+    \Illuminate\Support\Facades\DB::purge('compare_target6');
+
+    $result = $this->service->compare($sourceConfig, $targetConfig);
+
+    expect($result)->toHaveKey('users')
+        ->and($result['users']['missing_in_target'])->toBeTrue()
+        ->and($result['users']['rows1'])->toBe(3)
+        ->and($result['users']['rows2'])->toBe(0);
+});
+
+it('marks tables present in both as not missing', function () {
+    $sourceConfig = $this->setupTestDatabase('compare_source7', $this->makeUserRows(3));
+    $targetConfig = $this->setupTestDatabase('compare_target7', $this->makeUserRows(1));
+
+    $result = $this->service->compare($sourceConfig, $targetConfig);
+
+    expect($result['users']['missing_in_target'])->toBeFalse();
+});
