@@ -126,3 +126,137 @@ it('returns failure when source table does not exist', function () {
 
     expect($result['success'])->toBeFalse();
 });
+
+// ── getTableForeignKeys() ──────────────────────────────────────
+
+it('extracts foreign keys from a SQLite table', function () {
+    $config = $this->setupTestDatabaseWithFK('fk_source1');
+    $this->connectionService->registerConnection('fk_source1', $config);
+
+    $fks = $this->service->getTableForeignKeys('fk_source1', 'posts');
+
+    expect($fks)->not->toBeEmpty()
+        ->and($fks[0]['column'])->toBe('user_id')
+        ->and($fks[0]['foreign_table'])->toBe('users')
+        ->and($fks[0]['foreign_column'])->toBe('id');
+});
+
+it('returns empty array for table with no foreign keys', function () {
+    $config = $this->setupTestDatabase('fk_source2', []);
+    $this->connectionService->registerConnection('fk_source2', $config);
+
+    $fks = $this->service->getTableForeignKeys('fk_source2', 'users');
+
+    expect($fks)->toBeEmpty();
+});
+
+// ── FK binding during createTableFromSource() ──────────────────
+
+it('creates table with FK and defers when referenced table is missing', function () {
+    // Source has users + posts (with FK). Target is empty.
+    $sourceConfig = $this->setupTestDatabaseWithFK('fk_source3');
+
+    $dbPath = tempnam(sys_get_temp_dir(), 'larasync_test_') . '.sqlite';
+    touch($dbPath);
+    $this->tempDbFiles[] = $dbPath;
+
+    $targetConfig = [
+        'driver' => 'sqlite',
+        'database' => $dbPath,
+        'prefix' => '',
+    ];
+
+    // Create ONLY the posts table (users doesn't exist yet → FK should be deferred)
+    $result = $this->service->createTableFromSource($sourceConfig, $targetConfig, 'posts');
+
+    expect($result['success'])->toBeTrue()
+        ->and($result['deferred_fks'])->not->toBeEmpty()
+        ->and($result['deferred_fks'][0]['column'])->toBe('user_id')
+        ->and($result['deferred_fks'][0]['foreign_table'])->toBe('users');
+});
+
+it('creates table with no deferred FKs when referenced table exists', function () {
+    $sourceConfig = $this->setupTestDatabaseWithFK('fk_source4');
+
+    $dbPath = tempnam(sys_get_temp_dir(), 'larasync_test_') . '.sqlite';
+    touch($dbPath);
+    $this->tempDbFiles[] = $dbPath;
+
+    $targetConfig = [
+        'driver' => 'sqlite',
+        'database' => $dbPath,
+        'prefix' => '',
+    ];
+
+    // First create the users table (referenced table)
+    $this->service->createTableFromSource($sourceConfig, $targetConfig, 'users');
+
+    // Then create posts — FK to users should NOT be deferred
+    $result = $this->service->createTableFromSource($sourceConfig, $targetConfig, 'posts');
+
+    expect($result['success'])->toBeTrue()
+        ->and($result['deferred_fks'])->toBeEmpty();
+});
+
+it('returns empty deferred_fks when table has no foreign keys', function () {
+    $sourceConfig = $this->setupTestDatabase('fk_source5', []);
+
+    $dbPath = tempnam(sys_get_temp_dir(), 'larasync_test_') . '.sqlite';
+    touch($dbPath);
+    $this->tempDbFiles[] = $dbPath;
+
+    $targetConfig = [
+        'driver' => 'sqlite',
+        'database' => $dbPath,
+        'prefix' => '',
+    ];
+
+    $result = $this->service->createTableFromSource($sourceConfig, $targetConfig, 'users');
+
+    expect($result['success'])->toBeTrue()
+        ->and($result['deferred_fks'])->toBeEmpty();
+});
+
+// ── applyDeferredForeignKeys() ─────────────────────────────────
+
+it('applies deferred foreign keys after referenced table is created', function () {
+    $sourceConfig = $this->setupTestDatabaseWithFK('fk_source6');
+
+    $dbPath = tempnam(sys_get_temp_dir(), 'larasync_test_') . '.sqlite';
+    touch($dbPath);
+    $this->tempDbFiles[] = $dbPath;
+
+    $targetConfig = [
+        'driver' => 'sqlite',
+        'database' => $dbPath,
+        'prefix' => '',
+    ];
+
+    // Create posts first (users doesn't exist → FK deferred)
+    $result = $this->service->createTableFromSource($sourceConfig, $targetConfig, 'posts');
+    $deferredFks = $result['deferred_fks'];
+    expect($deferredFks)->not->toBeEmpty();
+
+    // Now create users table
+    $this->service->createTableFromSource($sourceConfig, $targetConfig, 'users');
+
+    // Apply deferred FKs — for SQLite this is a no-op (FKs embedded in DDL),
+    // but we verify the method runs without error and reports correctly
+    $fkResult = $this->service->applyDeferredForeignKeys($deferredFks, $targetConfig);
+
+    // The method should complete without exceptions
+    expect($fkResult)->toHaveKey('applied')
+        ->and($fkResult)->toHaveKey('failed');
+});
+
+it('handles empty deferred FK array gracefully', function () {
+    $result = $this->service->applyDeferredForeignKeys([], [
+        'driver' => 'sqlite',
+        'database' => ':memory:',
+        'prefix' => '',
+    ]);
+
+    expect($result['applied'])->toBe(0)
+        ->and($result['failed'])->toBe(0)
+        ->and($result['errors'])->toBeEmpty();
+});

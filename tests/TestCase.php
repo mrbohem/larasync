@@ -124,4 +124,59 @@ class TestCase extends Orchestra
 
         return $rows;
     }
+
+    /**
+     * Create a temp file-based SQLite database with two tables that have a FK relationship.
+     * Creates: users (id, name, email) and posts (id, title, user_id → users.id)
+     *
+     * @return array The connection config
+     */
+    protected function setupTestDatabaseWithFK(string $connectionName, array $userRows = [], array $postRows = []): array
+    {
+        $dbPath = tempnam(sys_get_temp_dir(), 'larasync_test_') . '.sqlite';
+        touch($dbPath);
+        $this->tempDbFiles[] = $dbPath;
+
+        $config = [
+            'driver' => 'sqlite',
+            'database' => $dbPath,
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+            'prefix' => '',
+            'strict' => true,
+        ];
+
+        config()->set("database.connections.{$connectionName}", $config);
+        DB::purge($connectionName);
+
+        // Enable FK enforcement for SQLite
+        DB::connection($connectionName)->statement('PRAGMA foreign_keys = ON');
+
+        // Create users table (parent)
+        Schema::connection($connectionName)->create('users', function ($table) {
+            $table->id();
+            $table->string('name');
+            $table->string('email');
+            $table->timestamps();
+        });
+
+        // Create posts table (child) with FK to users
+        Schema::connection($connectionName)->create('posts', function ($table) {
+            $table->id();
+            $table->string('title');
+            $table->unsignedBigInteger('user_id');
+            $table->timestamps();
+            $table->foreign('user_id')->references('id')->on('users');
+        });
+
+        // Seed data
+        if (!empty($userRows)) {
+            DB::connection($connectionName)->table('users')->insert($userRows);
+        }
+        if (!empty($postRows)) {
+            DB::connection($connectionName)->table('posts')->insert($postRows);
+        }
+
+        return $config;
+    }
 }

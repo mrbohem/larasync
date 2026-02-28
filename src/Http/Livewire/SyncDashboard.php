@@ -399,20 +399,40 @@ class SyncDashboard extends Component
         }
 
         if ($action === 'create') {
-            // Create all missing tables first
+            // Create all missing tables first, collecting deferred FKs
             $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
             $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
 
+            $allDeferredFks = [];
+
             foreach ($this->missing_tables as $table) {
-                // Find the source table name (may be schema-qualified)
                 $result = $this->schemaService->createTableFromSource($sourceConfig, $targetConfig, $table);
                 if ($result['success']) {
                     $this->logs[] = "✅ Created table: {$table}";
                     if (isset($this->comparison[$table])) {
                         $this->comparison[$table]['missing_in_target'] = false;
                     }
+                    // Collect deferred FKs
+                    if (!empty($result['deferred_fks'])) {
+                        $allDeferredFks = array_merge($allDeferredFks, $result['deferred_fks']);
+                    }
                 } else {
                     $this->logs[] = "❌ Failed to create table {$table}: {$result['message']}";
+                }
+            }
+
+            // Second pass: apply deferred FK constraints now that all tables exist
+            if (!empty($allDeferredFks)) {
+                $this->logs[] = "🔗 Binding " . count($allDeferredFks) . " deferred foreign key(s)...";
+                $fkResult = $this->schemaService->applyDeferredForeignKeys($allDeferredFks, $targetConfig);
+                if ($fkResult['applied'] > 0) {
+                    $this->logs[] = "✅ Bound {$fkResult['applied']} foreign key(s)";
+                }
+                if ($fkResult['failed'] > 0) {
+                    $this->logs[] = "⚠️ {$fkResult['failed']} foreign key(s) could not be bound";
+                    foreach ($fkResult['errors'] as $err) {
+                        $this->logs[] = "  ↳ {$err}";
+                    }
                 }
             }
 

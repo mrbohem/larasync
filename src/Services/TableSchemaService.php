@@ -399,7 +399,6 @@ class TableSchemaService
 
         return $deferred;
     }
-    }
 
     /**
      * Create a table on target using native DDL from source (same driver).
