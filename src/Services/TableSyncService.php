@@ -16,7 +16,7 @@ class TableSyncService
     public function __construct(
         private DatabaseConnectionService $connectionService,
         private TableComparisonService $comparisonService,
-        private ?TableSchemaService $schemaService = null,
+        private TableSchemaService $schemaService,
     ) {
     }
 
@@ -53,7 +53,7 @@ class TableSyncService
 
             // Handle missing target table
             if (!$targetTableName) {
-                if ($createMissingTable && $this->schemaService) {
+                if ($createMissingTable) {
                     $createResult = $this->schemaService->createTableFromSource($sourceConfig, $targetConfig, $sourceTableName);
                     if (!$createResult['success']) {
                         return new SyncResult(
@@ -78,15 +78,13 @@ class TableSyncService
             $unqualifiedTableName = $this->extractTableName($targetTableName);
 
             // Synchronize missing columns before syncing data
-            if ($this->schemaService) {
-                $columnSyncResult = $this->schemaService->syncColumns($sourceConn, $targetConn, $sourceTableName);
-                if (!$columnSyncResult['success']) {
-                    return new SyncResult(
-                        success: false,
-                        rowCount: 0,
-                        message: "Sync failed: {$columnSyncResult['message']}",
-                    );
-                }
+            $columnSyncResult = $this->schemaService->syncColumns($sourceConn, $targetConn, $sourceTableName);
+            if (!$columnSyncResult['success']) {
+                return new SyncResult(
+                    success: false,
+                    rowCount: 0,
+                    message: "Sync failed: {$columnSyncResult['message']}",
+                );
             }
 
             // Truncate and count total rows using streaming
@@ -142,7 +140,7 @@ class TableSyncService
 
             // Handle missing target table
             if (!$targetTableName) {
-                if ($createMissingTable && $this->schemaService) {
+                if ($createMissingTable) {
                     $createResult = $this->schemaService->createTableFromSource($sourceConfig, $targetConfig, $sourceTableName);
                     if (!$createResult['success']) {
                         return [
@@ -169,15 +167,13 @@ class TableSyncService
             // On first chunk, truncate target table and sync missing columns
             if ($offset === 0) {
                 // Synchronize missing columns before syncing data
-                if ($this->schemaService) {
-                    $columnSyncResult = $this->schemaService->syncColumns($sourceConn, $targetConn, $sourceTableName);
-                    if (!$columnSyncResult['success']) {
-                        return [
-                            'success' => false,
-                            'message' => "Chunk sync failed: {$columnSyncResult['message']}",
-                            'done' => true,
-                        ];
-                    }
+                $columnSyncResult = $this->schemaService->syncColumns($sourceConn, $targetConn, $sourceTableName);
+                if (!$columnSyncResult['success']) {
+                    return [
+                        'success' => false,
+                        'message' => "Chunk sync failed: {$columnSyncResult['message']}",
+                        'done' => true,
+                    ];
                 }
 
                 if ($targetDriver === 'pgsql') {

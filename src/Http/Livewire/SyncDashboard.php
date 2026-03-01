@@ -246,11 +246,11 @@ class SyncDashboard extends Component
         }
     }
 
-    public function syncTable($tableName, $createMissingTable = false)
+    public function syncTable($tableName, $createMissingTable = false): bool
     {
         if (!$this->db1_connected || !$this->db2_connected) {
             $this->addError('general', 'Please test both connections first!');
-            return;
+            return false;
         }
 
         $this->increaseExecutionTime(300); // 5 minutes per table
@@ -277,6 +277,8 @@ class SyncDashboard extends Component
         $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
         $this->fixComparisonRowCount($tableName, $sourceConfig, $targetConfig);
         $this->syncing = false;
+
+        return $result->success;
     }
 
     public function syncSingleTable($tableName)
@@ -508,14 +510,14 @@ class SyncDashboard extends Component
             // Drop target table safely utilizing TableSchemaService
             $this->schemaService->dropTable($targetConn, $tableName);
 
-            // Set state flag to prevent normal sync table from ignoring the missing table if createMissingTable is false
-            // But we pass createMissingTable: true below, so it's fine.
             $this->logs[] = "🔧 Recreating target table: {$tableName} and syncing data...";
 
             // Recreate table and sync data
-            $this->syncTable($tableName, createMissingTable: true);
+            $success = $this->syncTable($tableName, createMissingTable: true);
             
-            $this->logs[] = "✅ Schema successfully matched for {$tableName}";
+            if ($success) {
+                $this->logs[] = "✅ Schema successfully matched for {$tableName}";
+            }
 
             // Re-run comparison to show updated schema matching status
             $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
