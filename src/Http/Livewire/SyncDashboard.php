@@ -7,7 +7,9 @@ use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use MrBohem\Larasync\Services\ConnectionLabelService;
 use MrBohem\Larasync\Services\DatabaseConnectionService;
+use MrBohem\Larasync\Services\SyncOrchestrationService;
 use MrBohem\Larasync\Services\TableComparisonService;
 use MrBohem\Larasync\Services\TableSyncService;
 use MrBohem\Larasync\Services\TableDependencyService;
@@ -88,14 +90,18 @@ class SyncDashboard extends Component
     private TableSyncService $syncService;
     private TableDependencyService $dependencyService;
     private TableSchemaService $schemaService;
+    private ConnectionLabelService $labelService;
+    private SyncOrchestrationService $orchestrationService;
 
     public function boot()
     {
-        $this->connectionService = new DatabaseConnectionService();
-        $this->schemaService = new TableSchemaService($this->connectionService);
-        $this->comparisonService = new TableComparisonService($this->connectionService, $this->schemaService);
-        $this->syncService = new TableSyncService($this->connectionService, $this->comparisonService, $this->schemaService);
-        $this->dependencyService = new TableDependencyService($this->connectionService);
+        $this->connectionService = app(DatabaseConnectionService::class);
+        $this->schemaService = app(TableSchemaService::class);
+        $this->comparisonService = app(TableComparisonService::class);
+        $this->syncService = app(TableSyncService::class);
+        $this->dependencyService = app(TableDependencyService::class);
+        $this->labelService = app(ConnectionLabelService::class);
+        $this->orchestrationService = app(SyncOrchestrationService::class);
     }
 
     public function rules()
@@ -148,21 +154,14 @@ class SyncDashboard extends Component
         $this->db2_connected = $this->db2_configured && $this->testDbConnection('db2');
     }
 
-    public function testDb1()
+    public function testDb(string $prefix)
     {
-        $this->db1_connected = $this->testDbConnection('db1');
+        $label = strtoupper($prefix);
+        $connected = $this->testDbConnection($prefix);
+        $this->{$prefix . '_connected'} = $connected;
         session()->flash(
-            $this->db1_connected ? 'success' : 'error',
-            $this->db1_connected ? '✅ DB1 Connected!' : '❌ DB1 Connection failed!'
-        );
-    }
-
-    public function testDb2()
-    {
-        $this->db2_connected = $this->testDbConnection('db2');
-        session()->flash(
-            $this->db2_connected ? 'success' : 'error',
-            $this->db2_connected ? '✅ DB2 Connected!' : '❌ DB2 Connection failed!'
+            $connected ? 'success' : 'error',
+            $connected ? "✅ {$label} Connected!" : "❌ {$label} Connection failed!"
         );
     }
 
@@ -375,15 +374,9 @@ class SyncDashboard extends Component
         }
 
         // Check for missing tables and schema mismatches
-        $this->missing_tables = [];
-        $this->schema_mismatch_tables = [];
-        foreach ($this->comparison as $table => $data) {
-            if (!empty($data['missing_in_target'])) {
-                $this->missing_tables[] = $table;
-            } elseif (!empty($data['missing_columns']) || !empty($data['type_mismatches'])) {
-                $this->schema_mismatch_tables[] = $table;
-            }
-        }
+        $issues = $this->orchestrationService->detectTableIssues($this->comparison);
+        $this->missing_tables = $issues['missing_tables'];
+        $this->schema_mismatch_tables = $issues['schema_mismatch_tables'];
 
         if (!empty($this->missing_tables) || !empty($this->schema_mismatch_tables)) {
             $this->show_missing_tables_modal = true;
@@ -412,60 +405,19 @@ class SyncDashboard extends Component
         $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
 
         if ($action === 'create') {
-            // Create all missing tables first, collecting deferred FKs
-            $allDeferredFks = [];
+            // Create all missing tables via orchestration service
+            $createResult = $this->orchestrationService->createMissingTables(
+                $this->missing_tables, $this->comparison, $sourceConfig, $targetConfig
+            );
+            $this->logs = array_merge($this->logs, $createResult['logs']);
+            $this->comparison = $createResult['updated_comparison'];
 
-            foreach ($this->missing_tables as $table) {
-                $result = $this->schemaService->createTableFromSource($sourceConfig, $targetConfig, $table);
-                if ($result['success']) {
-                    $this->logs[] = "✅ Created table: {$table}";
-                    if (isset($this->comparison[$table])) {
-                        $this->comparison[$table]['missing_in_target'] = false;
-                    }
-                    // Collect deferred FKs
-                    if (!empty($result['deferred_fks'])) {
-                        $allDeferredFks = array_merge($allDeferredFks, $result['deferred_fks']);
-                    }
-                } else {
-                    $this->logs[] = "❌ Failed to create table {$table}: {$result['message']}";
-                }
-            }
-
-            // Second pass: apply deferred FK constraints now that all tables exist
-            if (!empty($allDeferredFks)) {
-                $this->logs[] = "🔗 Binding " . count($allDeferredFks) . " deferred foreign key(s)...";
-                $fkResult = $this->schemaService->applyDeferredForeignKeys($allDeferredFks, $targetConfig);
-                if ($fkResult['applied'] > 0) {
-                    $this->logs[] = "✅ Bound {$fkResult['applied']} foreign key(s)";
-                }
-                if ($fkResult['failed'] > 0) {
-                    $this->logs[] = "⚠️ {$fkResult['failed']} foreign key(s) could not be bound";
-                    foreach ($fkResult['errors'] as $err) {
-                        $this->logs[] = "  ↳ {$err}";
-                    }
-                }
-            }
-
-            // Fix schema mismatch tables by dropping and recreating
-            foreach ($this->schema_mismatch_tables as $table) {
-                try {
-                    $targetConn = 'sync_target_match';
-                    $this->connectionService->registerConnection($targetConn, $targetConfig);
-                    $this->schemaService->dropTable($targetConn, $table);
-                    $createResult = $this->schemaService->createTableFromSource($sourceConfig, $targetConfig, $table);
-                    if ($createResult['success']) {
-                        $this->logs[] = "✅ Fixed schema for: {$table}";
-                        if (isset($this->comparison[$table])) {
-                            $this->comparison[$table]['missing_columns'] = [];
-                            $this->comparison[$table]['type_mismatches'] = [];
-                        }
-                    } else {
-                        $this->logs[] = "❌ Failed to fix schema for {$table}: {$createResult['message']}";
-                    }
-                } catch (\Exception $e) {
-                    $this->logs[] = "❌ Failed to fix schema for {$table}: " . $e->getMessage();
-                }
-            }
+            // Fix schema mismatch tables via orchestration service
+            $fixResult = $this->orchestrationService->fixSchemaMismatches(
+                $this->schema_mismatch_tables, $this->comparison, $sourceConfig, $targetConfig
+            );
+            $this->logs = array_merge($this->logs, $fixResult['logs']);
+            $this->comparison = $fixResult['updated_comparison'];
 
             // Re-run comparison after creating/fixing tables
             $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
@@ -582,34 +534,19 @@ class SyncDashboard extends Component
         $this->sync_cancelled = false;
         $this->increaseExecutionTime(600); // 10 minutes for full sync
 
-        // Exclude missing tables and schema mismatch tables that user chose to skip
+        // Build ordered sync queue via orchestration service
         $skipTables = array_merge($this->missing_tables, $this->schema_mismatch_tables);
-        $tables = array_keys(array_filter($this->comparison, function ($data, $table) use ($skipTables) {
-            return empty($data['missing_in_target']) && !in_array($table, $skipTables);
-        }, ARRAY_FILTER_USE_BOTH));
+        $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
+
+        $queueResult = $this->orchestrationService->buildSyncQueue(
+            $this->comparison, $skipTables, $targetConfig
+        );
+        $tables = $queueResult['tables'];
+        $this->logs = array_merge($this->logs, $queueResult['logs']);
 
         // Clear after building the list
         $this->missing_tables = [];
         $this->schema_mismatch_tables = [];
-
-        // Get the target config to analyze dependencies
-        $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
-
-        // Reorder tables based on foreign key dependencies
-        try {
-            $orderedTables = $this->dependencyService->getSyncOrder($targetConfig, $tables);
-            
-            if ($orderedTables !== $tables) {
-                $this->logs[] = "📋 Tables reordered by dependencies:";
-                $this->logs[] = "   Sync order: " . implode(' → ', $orderedTables);
-                $tables = $orderedTables;
-            } else {
-                $this->logs[] = "📋 No dependencies detected, syncing in original order";
-            }
-        } catch (\Exception $e) {
-            $this->logs[] = "⚠️ Could not analyze dependencies, syncing in original order";
-            Log::warning("Dependency analysis failed: " . $e->getMessage());
-        }
 
         $this->sync_in_progress = true;
         $this->tables_to_sync = $tables;
@@ -794,70 +731,22 @@ class SyncDashboard extends Component
     /**
      * Determine a human-readable label ("Local" or "Cloud") for a DB prefix.
      */
-    private function getConnectionLabel(string $prefix): string
-    {
-        $driver = $this->{$prefix . '_driver'};
-        $host = $this->{$prefix . '_host'};
-
-        // SQLite is always local
-        if ($driver === 'sqlite') {
-            return 'Local';
-        }
-
-        // Localhost variants are local
-        $localHosts = ['localhost', '127.0.0.1', '::1', ''];
-        if (empty($host) || in_array(strtolower(trim($host)), $localHosts, true)) {
-            return 'Local';
-        }
-
-        return 'Cloud';
-    }
-
     /**
      * Update the dynamic labels for both database connections.
+     * Delegates to ConnectionLabelService.
      */
     private function updateLabels(): void
     {
-        $this->db1_label = $this->getConnectionLabel('db1');
-        $this->db2_label = $this->getConnectionLabel('db2');
-        $this->labels_match = ($this->db1_label === $this->db2_label);
+        $result = $this->labelService->computeLabels(
+            ['driver' => $this->db1_driver, 'host' => $this->db1_host, 'database' => $this->db1_database],
+            ['driver' => $this->db2_driver, 'host' => $this->db2_host, 'database' => $this->db2_database]
+        );
 
-        // When both labels match, build display names with host/db info for disambiguation
-        if ($this->labels_match) {
-            $this->db1_display = $this->buildDisplayName('db1');
-            $this->db2_display = $this->buildDisplayName('db2');
-        } else {
-            $this->db1_display = $this->db1_label;
-            $this->db2_display = $this->db2_label;
-        }
-    }
-
-    /**
-     * Build a disambiguated display name like "DB1 · host" or "DB1 · dbname".
-     */
-    private function buildDisplayName(string $prefix): string
-    {
-        $label = strtoupper($prefix);
-        $host = $this->{$prefix . '_host'};
-        $database = $this->{$prefix . '_database'};
-        $driver = $this->{$prefix . '_driver'};
-
-        // For SQLite, use the database filename
-        if ($driver === 'sqlite' && $database) {
-            return "{$label} · " . basename($database);
-        }
-
-        // For network DBs, use host (most distinguishing)
-        if ($host) {
-            return "{$label} · {$host}";
-        }
-
-        // Fallback to database name
-        if ($database) {
-            return "{$label} · {$database}";
-        }
-
-        return $label;
+        $this->db1_label = $result['db1_label'];
+        $this->db2_label = $result['db2_label'];
+        $this->labels_match = $result['labels_match'];
+        $this->db1_display = $result['db1_display'];
+        $this->db2_display = $result['db2_display'];
     }
 }
 

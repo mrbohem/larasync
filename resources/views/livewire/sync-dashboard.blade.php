@@ -16,7 +16,7 @@
                     <h3 class="text-base font-semibold text-slate-800">{{ $db1_label }} Database (DB1){{ $labels_match && $db1_host ? " · {$db1_host}" : '' }}</h3>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button wire:click="testDb1"
+                    <button wire:click="testDb('db1')"
                         class="px-4 py-2 text-sm font-medium rounded-lg transition-colors {{ $db1_connected ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-indigo-600 text-white hover:bg-indigo-700' }}">
                         {{ $db1_connected ? '✓ Connected' : 'Test' }}
                     </button>
@@ -92,7 +92,7 @@
                     <h3 class="text-base font-semibold text-slate-800">{{ $db2_label }} Database (DB2){{ $labels_match && $db2_host ? " · {$db2_host}" : '' }}</h3>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button wire:click="testDb2"
+                    <button wire:click="testDb('db2')"
                         class="px-4 py-2 text-sm font-medium rounded-lg transition-colors {{ $db2_connected ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-emerald-600 text-white hover:bg-emerald-700' }}">
                         {{ $db2_connected ? '✓ Connected' : 'Test' }}
                     </button>

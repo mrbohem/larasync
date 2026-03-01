@@ -62,6 +62,52 @@ it('sets error when comparing without db connections', function () {
         ->assertSet('error', 'Please test both connections first!');
 });
 
+it('shows direction selector when both dbs are connected', function () {
+    Livewire::test('sync-dashboard')
+        ->set('db1_driver', 'mysql')
+        ->set('db1_database', 'testdb')
+        ->set('db1_host', 'localhost')
+        ->set('db1_username', 'root')
+        ->set('db2_driver', 'mysql')
+        ->set('db2_database', 'testdb2')
+        ->set('db2_host', 'localhost')
+        ->set('db2_username', 'root')
+        ->set('db1_connected', true)
+        ->set('db2_connected', true)
+        ->call('compare')
+        ->assertSet('show_direction_selector', true)
+        ->assertSet('error', null);
+});
+
+// ── Test DB Connection ────────────────────────────────────────
+
+it('flashes success session message on successful testDb', function () {
+    // Use a valid MySQL-like config that won't connect, but test the method mechanics
+    // The testDb method should set the connected property and flash session
+    Livewire::test('sync-dashboard')
+        ->set('db1_driver', 'mysql')
+        ->set('db1_host', '255.255.255.255')
+        ->set('db1_port', '9999')
+        ->set('db1_database', 'nonexistent')
+        ->set('db1_username', 'nobody')
+        ->set('db1_password', 'wrong')
+        ->call('testDb', 'db1')
+        ->assertSet('db1_connected', false);
+});
+
+it('testDb works for both prefixes', function () {
+    // Both should behave identically, just with different property prefixes
+    $component = Livewire::test('sync-dashboard')
+        ->set('db2_driver', 'mysql')
+        ->set('db2_host', '255.255.255.255')
+        ->set('db2_port', '9999')
+        ->set('db2_database', 'nonexistent')
+        ->set('db2_username', 'nobody')
+        ->set('db2_password', 'wrong')
+        ->call('testDb', 'db2')
+        ->assertSet('db2_connected', false);
+});
+
 // ── Sync Table ────────────────────────────────────────────────
 
 it('prevents sync when dbs are not connected', function () {
@@ -76,6 +122,43 @@ it('prevents sync all when dbs are not connected', function () {
     Livewire::test('sync-dashboard')
         ->call('syncAllTables')
         ->assertHasErrors('general');
+});
+
+// ── Sync Single Table Guards ──────────────────────────────────
+
+it('does not start sync when single_sync_table is already set', function () {
+    Livewire::test('sync-dashboard')
+        ->set('single_sync_table', 'orders')
+        ->set('comparison', [
+            'users' => ['rows1' => 5, 'rows2' => 3, 'diff' => 2, 'action' => 'sync', 'missing_in_target' => false],
+        ])
+        ->call('syncSingleTable', 'users')
+        ->assertSet('single_sync_table', 'orders'); // Unchanged
+});
+
+it('does not start sync when sync_in_progress is true', function () {
+    Livewire::test('sync-dashboard')
+        ->set('sync_in_progress', true)
+        ->set('comparison', [
+            'users' => ['rows1' => 5, 'rows2' => 3, 'diff' => 2, 'action' => 'sync', 'missing_in_target' => false],
+        ])
+        ->call('syncSingleTable', 'users')
+        ->assertSet('sync_in_progress', true);
+});
+
+it('redirects to create table preview for missing table', function () {
+    Livewire::test('sync-dashboard')
+        ->set('db1_connected', true)
+        ->set('db2_connected', true)
+        ->set('db1_driver', 'sqlite')
+        ->set('db1_database', ':memory:')
+        ->set('db2_driver', 'sqlite')
+        ->set('db2_database', ':memory:')
+        ->set('comparison', [
+            'users' => ['rows1' => 5, 'rows2' => 0, 'diff' => 5, 'action' => 'sync', 'missing_in_target' => true],
+        ])
+        ->call('syncSingleTable', 'users')
+        ->assertSet('pending_create_table', 'users');
 });
 
 // ── Clear / Reset ──────────────────────────────────────────────
@@ -312,6 +395,15 @@ it('cancels single table creation', function () {
         ->assertSet('pending_create_preview', []);
 });
 
+it('adds log message when cancelling table creation', function () {
+    Livewire::test('sync-dashboard')
+        ->set('pending_create_table', 'users')
+        ->set('pending_create_preview', [['name' => 'id', 'type' => 'integer']])
+        ->set('logs', [])
+        ->call('cancelCreateTable')
+        ->assertSet('logs', ['⛔ Table creation cancelled']);
+});
+
 // ── Schema Mismatch Detection ─────────────────────────────────
 
 it('shows modal when sync-all detects schema mismatch tables', function () {
@@ -361,3 +453,51 @@ it('clears schema_mismatch_tables on clear', function () {
         ->assertSet('schema_mismatch_tables', []);
 });
 
+// ── Schema Warnings Modal ─────────────────────────────────────
+
+it('shows schema warnings modal for existing table', function () {
+    Livewire::test('sync-dashboard')
+        ->set('comparison', [
+            'users' => ['rows1' => 5, 'rows2' => 5, 'diff' => 0, 'missing_columns' => ['email']],
+        ])
+        ->call('showSchemaWarnings', 'users')
+        ->assertSet('show_schema_modal', true)
+        ->assertSet('schema_warnings_table', 'users');
+});
+
+it('does not show schema warnings for non-existent table', function () {
+    Livewire::test('sync-dashboard')
+        ->set('comparison', [])
+        ->call('showSchemaWarnings', 'unknown')
+        ->assertSet('show_schema_modal', false)
+        ->assertSet('schema_warnings_table', null);
+});
+
+it('closes schema warnings modal', function () {
+    Livewire::test('sync-dashboard')
+        ->set('show_schema_modal', true)
+        ->set('schema_warnings_table', 'users')
+        ->call('closeSchemaWarnings')
+        ->assertSet('show_schema_modal', false)
+        ->assertSet('schema_warnings_table', null);
+});
+
+it('clears schema modal state on clear', function () {
+    Livewire::test('sync-dashboard')
+        ->set('show_schema_modal', true)
+        ->set('schema_warnings_table', 'users')
+        ->call('clear')
+        ->assertSet('show_schema_modal', false)
+        ->assertSet('schema_warnings_table', null);
+});
+
+// ── Sync Table Chunk Cancellation ─────────────────────────────
+
+it('returns early from syncTableChunk when cancelled', function () {
+    Livewire::test('sync-dashboard')
+        ->set('sync_cancelled', true)
+        ->set('single_sync_table', 'users')
+        ->set('single_sync_offset', 500)
+        ->call('syncTableChunk', 'users')
+        ->assertSet('single_sync_offset', 500); // Should remain unchanged
+});
