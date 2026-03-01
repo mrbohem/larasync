@@ -311,3 +311,53 @@ it('cancels single table creation', function () {
         ->assertSet('pending_create_table', null)
         ->assertSet('pending_create_preview', []);
 });
+
+// ── Schema Mismatch Detection ─────────────────────────────────
+
+it('shows modal when sync-all detects schema mismatch tables', function () {
+    Livewire::test('sync-dashboard')
+        ->set('db1_connected', true)
+        ->set('db2_connected', true)
+        ->set('comparison', [
+            'users' => ['rows1' => 5, 'rows2' => 5, 'diff' => 0, 'action' => 'equal', 'missing_in_target' => false, 'missing_columns' => ['email'], 'type_mismatches' => []],
+            'posts' => ['rows1' => 3, 'rows2' => 3, 'diff' => 0, 'action' => 'equal', 'missing_in_target' => false, 'missing_columns' => [], 'type_mismatches' => []],
+        ])
+        ->call('syncAllTables')
+        ->assertSet('show_missing_tables_modal', true)
+        ->assertSet('schema_mismatch_tables', ['users'])
+        ->assertSet('missing_tables', [])
+        ->assertSet('sync_in_progress', false);
+});
+
+it('shows modal for both missing and schema mismatch tables', function () {
+    Livewire::test('sync-dashboard')
+        ->set('db1_connected', true)
+        ->set('db2_connected', true)
+        ->set('comparison', [
+            'users' => ['rows1' => 5, 'rows2' => 0, 'diff' => 5, 'action' => 'sync', 'missing_in_target' => true, 'missing_columns' => [], 'type_mismatches' => []],
+            'posts' => ['rows1' => 3, 'rows2' => 3, 'diff' => 0, 'action' => 'equal', 'missing_in_target' => false, 'missing_columns' => [], 'type_mismatches' => ['id' => ['source' => 'bigint', 'target' => 'integer']]],
+        ])
+        ->call('syncAllTables')
+        ->assertSet('show_missing_tables_modal', true)
+        ->assertSet('missing_tables', ['users'])
+        ->assertSet('schema_mismatch_tables', ['posts']);
+});
+
+it('cancel clears schema_mismatch_tables', function () {
+    Livewire::test('sync-dashboard')
+        ->set('db1_connected', true)
+        ->set('db2_connected', true)
+        ->set('schema_mismatch_tables', ['users'])
+        ->set('show_missing_tables_modal', true)
+        ->call('handleMissingTablesChoice', 'cancel')
+        ->assertSet('show_missing_tables_modal', false)
+        ->assertSet('schema_mismatch_tables', []);
+});
+
+it('clears schema_mismatch_tables on clear', function () {
+    Livewire::test('sync-dashboard')
+        ->set('schema_mismatch_tables', ['users'])
+        ->call('clear')
+        ->assertSet('schema_mismatch_tables', []);
+});
+

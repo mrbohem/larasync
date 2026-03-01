@@ -73,6 +73,7 @@ class SyncDashboard extends Component
 
     // ── Missing Tables ─────────────────────────────────────────────
     public $missing_tables = [];
+    public $schema_mismatch_tables = [];
     public $show_missing_tables_modal = false;
     public $pending_create_table = null;
     public $pending_create_preview = [];
@@ -373,20 +374,23 @@ class SyncDashboard extends Component
             return;
         }
 
-        // Check for missing tables
+        // Check for missing tables and schema mismatches
         $this->missing_tables = [];
+        $this->schema_mismatch_tables = [];
         foreach ($this->comparison as $table => $data) {
             if (!empty($data['missing_in_target'])) {
                 $this->missing_tables[] = $table;
+            } elseif (!empty($data['missing_columns']) || !empty($data['type_mismatches'])) {
+                $this->schema_mismatch_tables[] = $table;
             }
         }
 
-        if (!empty($this->missing_tables)) {
+        if (!empty($this->missing_tables) || !empty($this->schema_mismatch_tables)) {
             $this->show_missing_tables_modal = true;
             return;
         }
 
-        // No missing tables, proceed directly
+        // No issues, proceed directly
         $this->startSyncAllTables();
     }
 
@@ -400,14 +404,15 @@ class SyncDashboard extends Component
         if ($action === 'cancel') {
             $this->logs[] = '⛔ Sync cancelled by user';
             $this->missing_tables = [];
+            $this->schema_mismatch_tables = [];
             return;
         }
 
+        $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
+        $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
+
         if ($action === 'create') {
             // Create all missing tables first, collecting deferred FKs
-            $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
-            $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
-
             $allDeferredFks = [];
 
             foreach ($this->missing_tables as $table) {
@@ -441,14 +446,37 @@ class SyncDashboard extends Component
                 }
             }
 
-            // Re-run comparison after creating tables
+            // Fix schema mismatch tables by dropping and recreating
+            foreach ($this->schema_mismatch_tables as $table) {
+                try {
+                    $targetConn = 'sync_target_match';
+                    $this->connectionService->registerConnection($targetConn, $targetConfig);
+                    $this->schemaService->dropTable($targetConn, $table);
+                    $createResult = $this->schemaService->createTableFromSource($sourceConfig, $targetConfig, $table);
+                    if ($createResult['success']) {
+                        $this->logs[] = "✅ Fixed schema for: {$table}";
+                        if (isset($this->comparison[$table])) {
+                            $this->comparison[$table]['missing_columns'] = [];
+                            $this->comparison[$table]['type_mismatches'] = [];
+                        }
+                    } else {
+                        $this->logs[] = "❌ Failed to fix schema for {$table}: {$createResult['message']}";
+                    }
+                } catch (\Exception $e) {
+                    $this->logs[] = "❌ Failed to fix schema for {$table}: " . $e->getMessage();
+                }
+            }
+
+            // Re-run comparison after creating/fixing tables
             $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
             $this->missing_tables = [];
+            $this->schema_mismatch_tables = [];
         }
 
         if ($action === 'skip') {
-            $this->logs[] = '⚠️ Skipping ' . count($this->missing_tables) . ' missing table(s)';
-            $this->missing_tables = [];
+            $skipCount = count($this->missing_tables) + count($this->schema_mismatch_tables);
+            $this->logs[] = '⚠️ Skipping ' . $skipCount . ' table(s) with issues';
+            // missing_tables and schema_mismatch_tables stay set so startSyncAllTables can exclude them
         }
 
         // Proceed with sync (skip or create both lead to syncing)
@@ -553,7 +581,16 @@ class SyncDashboard extends Component
     {
         $this->sync_cancelled = false;
         $this->increaseExecutionTime(600); // 10 minutes for full sync
-        $tables = array_keys(array_filter($this->comparison, fn($data) => empty($data['missing_in_target'])));
+
+        // Exclude missing tables and schema mismatch tables that user chose to skip
+        $skipTables = array_merge($this->missing_tables, $this->schema_mismatch_tables);
+        $tables = array_keys(array_filter($this->comparison, function ($data, $table) use ($skipTables) {
+            return empty($data['missing_in_target']) && !in_array($table, $skipTables);
+        }, ARRAY_FILTER_USE_BOTH));
+
+        // Clear after building the list
+        $this->missing_tables = [];
+        $this->schema_mismatch_tables = [];
 
         // Get the target config to analyze dependencies
         $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
@@ -686,6 +723,7 @@ class SyncDashboard extends Component
         $this->single_sync_total = 0;
         $this->sync_cancelled = false;
         $this->missing_tables = [];
+        $this->schema_mismatch_tables = [];
         $this->show_missing_tables_modal = false;
         $this->pending_create_table = null;
         $this->pending_create_preview = [];
