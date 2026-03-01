@@ -9,12 +9,14 @@ class TableComparisonService
 {
     public function __construct(
         private DatabaseConnectionService $connectionService,
+        private TableSchemaService $schemaService,
     ) {
     }
 
     /**
      * Compare all tables between two database configs.
-     * Returns an array keyed by normalized table name with rows1, rows2, diff, and action.
+     * Returns an array keyed by normalized table name with rows1, rows2, diff, action,
+     * missing_columns, and type_mismatches.
      * Uses batch queries to fetch all row counts efficiently.
      * Filters tables by schema if specified in config.
      */
@@ -71,16 +73,73 @@ class TableComparisonService
             // A table is missing in target if it exists in source but not in target's table map
             $missingInTarget = $sourceTable !== null && $targetTable === null;
 
+            $missingColumns = [];
+            $typeMismatches = [];
+
+            // If table exists in both, compare schema for diffs
+            if ($sourceTable !== null && $targetTable !== null) {
+                try {
+                    $sourceCols = $this->schemaService->getTableColumns($sourceConn, $sourceTable);
+                    $targetCols = $this->schemaService->getTableColumns($targetConn, $targetTable);
+
+                    $diffs = $this->compareColumns($sourceCols, $targetCols);
+                    $missingColumns = $diffs['missing_columns'];
+                    $typeMismatches = $diffs['type_mismatches'];
+                } catch (\Exception $e) {
+                    // Ignore schema fetching errors for comparison gracefully
+                }
+            }
+
             $comparison[$table] = [
                 'rows1' => $rows1,
                 'rows2' => $rows2,
                 'diff' => $diff,
                 'action' => $diff > 0 ? 'sync' : ($diff < 0 ? 'update' : 'equal'),
                 'missing_in_target' => $missingInTarget,
+                'missing_columns' => $missingColumns,
+                'type_mismatches' => $typeMismatches,
             ];
         }
 
         return $comparison;
+    }
+
+    /**
+     * Compare source and target column arrays to identify missing columns and type mismatches.
+     */
+    private function compareColumns(array $sourceCols, array $targetCols): array
+    {
+        $missingColumns = [];
+        $typeMismatches = [];
+
+        $targetColsMap = collect($targetCols)->keyBy('name')->toArray();
+
+        foreach ($sourceCols as $sCol) {
+            $colName = $sCol['name'];
+            if (!isset($targetColsMap[$colName])) {
+                $missingColumns[] = $colName;
+            } else {
+                $tCol = $targetColsMap[$colName];
+                $sourceType = strtolower($sCol['type_name'] ?? $sCol['type'] ?? 'unknown');
+                $targetType = strtolower($tCol['type_name'] ?? $tCol['type'] ?? 'unknown');
+
+                // Basic type normalization (e.g. 'integer' vs 'int')
+                $normalizedSource = str_replace('integer', 'int', $sourceType);
+                $normalizedTarget = str_replace('integer', 'int', $targetType);
+
+                if ($normalizedSource !== $normalizedTarget) {
+                    $typeMismatches[$colName] = [
+                        'source' => $sCol['type_name'] ?? $sCol['type'] ?? 'unknown',
+                        'target' => $tCol['type_name'] ?? $tCol['type'] ?? 'unknown',
+                    ];
+                }
+            }
+        }
+
+        return [
+            'missing_columns' => $missingColumns,
+            'type_mismatches' => $typeMismatches,
+        ];
     }
 
     /**

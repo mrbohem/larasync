@@ -77,6 +77,18 @@ class TableSyncService
             // Extract unqualified table name once for all operations
             $unqualifiedTableName = $this->extractTableName($targetTableName);
 
+            // Synchronize missing columns before syncing data
+            if ($this->schemaService) {
+                $columnSyncResult = $this->schemaService->syncColumns($sourceConn, $targetConn, $sourceTableName);
+                if (!$columnSyncResult['success']) {
+                    return new SyncResult(
+                        success: false,
+                        rowCount: 0,
+                        message: "Sync failed: {$columnSyncResult['message']}",
+                    );
+                }
+            }
+
             // Truncate and count total rows using streaming
             $rowCount = $this->countTableRows(DB::connection($sourceConn), $sourceTableName);
 
@@ -154,8 +166,20 @@ class TableSyncService
             $sourceConnection = DB::connection($sourceConn);
             $targetConnection = DB::connection($targetConn);
 
-            // On first chunk, truncate target table
+            // On first chunk, truncate target table and sync missing columns
             if ($offset === 0) {
+                // Synchronize missing columns before syncing data
+                if ($this->schemaService) {
+                    $columnSyncResult = $this->schemaService->syncColumns($sourceConn, $targetConn, $sourceTableName);
+                    if (!$columnSyncResult['success']) {
+                        return [
+                            'success' => false,
+                            'message' => "Chunk sync failed: {$columnSyncResult['message']}",
+                            'done' => true,
+                        ];
+                    }
+                }
+
                 if ($targetDriver === 'pgsql') {
                     $targetConnection->statement('SET session_replication_role = replica');
                     try {

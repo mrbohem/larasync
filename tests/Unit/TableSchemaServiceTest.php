@@ -260,3 +260,25 @@ it('handles empty deferred FK array gracefully', function () {
         ->and($result['failed'])->toBe(0)
         ->and($result['errors'])->toBeEmpty();
 });
+
+// ── dropTable() ────────────────────────────────────────────────
+
+it('drops table successfully', function () {
+    $config = $this->setupTestDatabase('schema_drop1', $this->makeUserRows(1));
+    $this->connectionService->registerConnection('schema_drop1', $config);
+
+    // Verify table exists initially
+    $tablesBefore = Schema::connection('schema_drop1')->getTableListing();
+    $normalizedBefore = array_map(fn($t) => str_contains($t, '.') ? substr($t, strrpos($t, '.') + 1) : $t, $tablesBefore);
+    expect($normalizedBefore)->toContain('users');
+
+    // Drop the table
+    $result = $this->service->dropTable('schema_drop1', 'users');
+
+    expect($result)->toBeTrue();
+
+    // Verify table no longer exists
+    $tablesAfter = Schema::connection('schema_drop1')->getTableListing();
+    $normalizedAfter = array_map(fn($t) => str_contains($t, '.') ? substr($t, strrpos($t, '.') + 1) : $t, $tablesAfter);
+    expect($normalizedAfter)->not->toContain('users');
+});

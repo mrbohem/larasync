@@ -13,6 +13,74 @@ class TableSchemaService
     ) {}
 
     /**
+     * Compare columns between source and target, and add missing ones to target.
+     * 
+     * @return array{success: bool, message: string, added: array}
+     */
+    public function syncColumns(string $sourceConn, string $targetConn, string $table): array
+    {
+        try {
+            $sourceColumns = $this->getTableColumns($sourceConn, $table);
+            $targetColumns = $this->getTableColumns($targetConn, $table);
+
+            if (empty($sourceColumns)) {
+                return ['success' => false, 'message' => "No columns found in source for table {$table}", 'added' => []];
+            }
+
+            // Extract just the column names for easy comparison
+            $sourceColNames = array_column($sourceColumns, 'name');
+            $targetColNames = array_column($targetColumns, 'name');
+
+            // Find missing columns
+            $missingColNames = array_diff($sourceColNames, $targetColNames);
+
+            if (empty($missingColNames)) {
+                return ['success' => true, 'message' => 'No missing columns', 'added' => []];
+            }
+
+            // Get full metadata for the missing columns
+            $missingColumns = array_filter($sourceColumns, fn($col) => in_array($col['name'], $missingColNames));
+
+            $bareTable = str_contains($table, '.') ? substr($table, strrpos($table, '.') + 1) : $table;
+
+            // Add the missing columns
+            $targetDriver = DB::connection($targetConn)->getDriverName();
+            if ($targetDriver === 'sqlite') {
+                foreach ($missingColumns as $col) {
+                    $type = $col['type_name'] ?? $col['type'] ?? 'varchar';
+                    $def = "ALTER TABLE \"{$bareTable}\" ADD COLUMN \"{$col['name']}\" {$type}";
+                    
+                    if (isset($col['default']) && $col['default'] !== null) {
+                        $def .= " DEFAULT " . DB::connection($targetConn)->getPdo()->quote($col['default']);
+                    }
+                    
+                    DB::connection($targetConn)->statement($def);
+                }
+            } else {
+                Schema::connection($targetConn)->table($bareTable, function ($blueprint) use ($missingColumns) {
+                    foreach ($missingColumns as $col) {
+                        $this->addColumnToBlueprint($blueprint, $col);
+                    }
+                });
+            }
+
+            return [
+                'success' => true,
+                'message' => "Added " . count($missingColNames) . " missing column(s) to {$bareTable}",
+                'added' => array_values($missingColNames)
+            ];
+
+        } catch (\Exception $e) {
+            Log::error("Failed to sync columns for {$table}: " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => "Failed to sync columns for {$table}: " . $e->getMessage(),
+                'added' => []
+            ];
+        }
+    }
+
+    /**
      * Get the CREATE TABLE SQL for a table from the given connection.
      * Returns raw DDL string or null on failure.
      */
@@ -44,6 +112,26 @@ class TableSchemaService
         } catch (\Exception $e) {
             Log::error("Failed to get columns for {$table}: " . $e->getMessage());
             return [];
+        }
+    }
+
+    /**
+     * Safely drop a table on a given connection, temporarily disabling foreign key checks.
+     */
+    public function dropTable(string $connectionName, string $table): bool
+    {
+        try {
+            Schema::connection($connectionName)->disableForeignKeyConstraints();
+            Schema::connection($connectionName)->dropIfExists($table);
+            Schema::connection($connectionName)->enableForeignKeyConstraints();
+            return true;
+        } catch (\Exception $e) {
+            Log::error("Failed to drop table {$table} on {$connectionName}: " . $e->getMessage());
+            // Attempt to re-enable constraints if it fails
+            try {
+                Schema::connection($connectionName)->enableForeignKeyConstraints();
+            } catch (\Exception $inner) {}
+            return false;
         }
     }
 
@@ -98,6 +186,9 @@ class TableSchemaService
             // For MySQL/PostgreSQL, native DDL may fail if referenced table is missing.
             if ($sourceDriver === $targetDriver) {
                 $result = $this->createTableNative($sourceConn, $targetConn, $table, $sourceDriver);
+            } else if ($targetDriver === 'sqlite') {
+                // Cross-driver to SQLite: emit native queries to preserve exact source types
+                $result = $this->createTableViaRawSQLite($sourceConn, $targetConn, $table);
             } else {
                 // Cross-driver: use Schema Builder (creates columns only)
                 $result = $this->createTableViaSchemaBuilder($sourceConn, $targetConn, $table);
@@ -435,6 +526,76 @@ class TableSchemaService
     // ────────────────────────────────────────────────────────────────
     //  Schema Builder Fallback (cross-driver)
     // ────────────────────────────────────────────────────────────────
+
+    /**
+     * Create a table on target via raw queries to preserve exact types when target is SQLite.
+     * Bypasses Laravel's Schema Builder which forcefully converts tinyint -> integer.
+     */
+    private function createTableViaRawSQLite(string $sourceConn, string $targetConn, string $table): array
+    {
+        $bareTable = str_contains($table, '.') ? substr($table, strrpos($table, '.') + 1) : $table;
+
+        $columns = Schema::connection($sourceConn)->getColumns($table);
+        $indexes = Schema::connection($sourceConn)->getIndexes($table);
+
+        if (empty($columns)) {
+            return [
+                'success' => false,
+                'message' => "No columns found for table {$table} in source",
+            ];
+        }
+
+        $primaryKeys = [];
+        foreach ($indexes as $index) {
+            if ($index['primary'] ?? false) {
+                $primaryKeys = $index['columns'] ?? [];
+                break;
+            }
+        }
+
+        $colDefs = [];
+        foreach ($columns as $col) {
+            $name = $col['name'];
+            $type = $col['type_name'] ?? $col['type'] ?? 'varchar';
+
+            // Auto-increment in SQLite requires exactly "INTEGER PRIMARY KEY AUTOINCREMENT"
+            if ($col['auto_increment'] ?? false) {
+                $colDefs[] = "\"{$name}\" INTEGER PRIMARY KEY AUTOINCREMENT";
+                $primaryKeys = array_diff($primaryKeys, [$name]);
+                continue;
+            }
+
+            $def = "\"{$name}\" {$type}";
+            if (!($col['nullable'] ?? false)) {
+                $def .= ' NOT NULL';
+            }
+            if (isset($col['default']) && $col['default'] !== null) {
+                $def .= " DEFAULT " . DB::connection($targetConn)->getPdo()->quote($col['default']);
+            }
+
+            $colDefs[] = $def;
+        }
+
+        if (!empty($primaryKeys)) {
+            $pkStr = implode('", "', $primaryKeys);
+            $colDefs[] = "PRIMARY KEY (\"{$pkStr}\")";
+        }
+
+        $sql = "CREATE TABLE \"{$bareTable}\" (\n  " . implode(",\n  ", $colDefs) . "\n)";
+
+        try {
+            DB::connection($targetConn)->statement($sql);
+            return [
+                'success' => true,
+                'message' => "Created table {$bareTable} successfully (via raw SQLite query)",
+            ];
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'message' => "Failed to create table {$bareTable}: " . $e->getMessage(),
+            ];
+        }
+    }
 
     /**
      * Create a table on target using Laravel's Schema Builder.

@@ -448,7 +448,19 @@
                         <tbody class="divide-y divide-slate-200/80 bg-white">
                             @foreach($comparison as $table => $data)
                                 <tr class="hover:bg-slate-50/50 transition-colors {{ $data['diff'] !== 0 ? 'border-l-2 border-indigo-500' : '' }} {{ ($current_syncing_table === $table || $single_sync_table === $table) ? 'bg-amber-50/30' : '' }}">
-                                    <td class="px-5 py-3.5 font-mono font-medium text-sm text-slate-900 max-w-xs truncate">{{ $table }}</td>
+                                    <td class="px-5 py-3.5">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-mono font-medium text-sm text-slate-900 max-w-xs truncate">{{ $table }}</span>
+                                            @if(!empty($data['missing_columns']) || !empty($data['type_mismatches']))
+                                                <button wire:click="showSchemaWarnings('{{ $table }}')" class="inline-flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-xs font-semibold hover:bg-amber-200 transition-colors" title="Schema Differences Detected">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                                                    </svg>
+                                                    Schema Diff
+                                                </button>
+                                            @endif
+                                        </div>
+                                    </td>
                                     <td class="px-5 py-3.5 text-center">
                                         <div class="font-mono font-semibold text-sm text-slate-900">{{ number_format($data['rows1']) }}</div>
                                         <div class="text-xs text-slate-500">rows</div>
@@ -742,6 +754,101 @@
                                 </svg>
                                 Create & Sync
                             </button>
+                        </div>
+                    </div>
+                </div>
+            @endif
+
+            {{-- Schema Warnings Modal --}}
+            @if($show_schema_modal && $schema_warnings_table)
+                <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div class="bg-white rounded-xl p-8 max-w-2xl w-full shadow-xl">
+                        <div class="text-center mb-6">
+                            <div class="w-14 h-14 bg-amber-50 rounded-xl flex items-center justify-center mx-auto mb-4">
+                                <svg class="w-7 h-7 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                                </svg>
+                            </div>
+                            <h2 class="text-xl font-semibold text-slate-900 mb-2">Schema Differences: {{ $schema_warnings_table }}</h2>
+                            <p class="text-sm text-slate-600">
+                                Larasync detected differences between the source and target schemas for this table.
+                            </p>
+                        </div>
+
+                        @php
+                            $tableData = $comparison[$schema_warnings_table] ?? null;
+                            $missingCols = $tableData['missing_columns'] ?? [];
+                            $typeMismatches = $tableData['type_mismatches'] ?? [];
+                        @endphp
+
+                        @if(!empty($missingCols))
+                            <div class="bg-red-50/50 border border-red-200/50 rounded-xl overflow-hidden mb-6">
+                                <div class="px-4 py-3 bg-red-100 border-b border-red-200 flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                                    </svg>
+                                    <h4 class="text-xs font-semibold text-red-800 uppercase tracking-wide">Missing Columns ({{ count($missingCols) }})</h4>
+                                </div>
+                                <div class="px-4 py-3">
+                                    <p class="text-xs text-red-700 mb-2">These columns exist in the source but are missing from the target table. Syncing may fail if data is inserted into them.</p>
+                                    <div class="flex flex-wrap gap-2">
+                                        @foreach($missingCols as $col)
+                                            <span class="inline-flex bg-white border border-red-200 text-red-700 px-2 py-1 rounded text-xs font-mono font-medium">{{ $col }}</span>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+
+                        @if(!empty($typeMismatches))
+                            <div class="bg-amber-50/50 border border-amber-200/50 rounded-xl overflow-hidden mb-6">
+                                <div class="px-4 py-3 bg-amber-100 border-b border-amber-200 flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                                    </svg>
+                                    <h4 class="text-xs font-semibold text-amber-800 uppercase tracking-wide">Type Mismatches ({{ count($typeMismatches) }})</h4>
+                                </div>
+                                <div class="max-h-48 overflow-y-auto">
+                                    <table class="w-full text-sm">
+                                        <thead>
+                                            <tr class="border-b border-amber-200 bg-amber-50/50 text-left text-xs font-semibold text-amber-800">
+                                                <th class="px-4 py-2">Column</th>
+                                                <th class="px-4 py-2">Source Type</th>
+                                                <th class="px-4 py-2">Target Type</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-amber-100">
+                                            @foreach($typeMismatches as $col => $types)
+                                                <tr class="hover:bg-amber-50">
+                                                    <td class="px-4 py-2 font-mono text-xs text-slate-900 font-medium">{{ $col }}</td>
+                                                    <td class="px-4 py-2 font-mono text-xs text-indigo-600">{{ $types['source'] }}</td>
+                                                    <td class="px-4 py-2 font-mono text-xs text-red-600">{{ $types['target'] }}</td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="px-4 py-2 bg-amber-50/50 border-t border-amber-200 text-xs text-amber-700">
+                                    Tip: Data type mismatches, such as <code class="bg-amber-100 px-1 rounded">tinyint</code> vs <code class="bg-amber-100 px-1 rounded">integer</code>, may lead to data loss or unwanted casting during sync.
+                                </div>
+                            </div>
+                        @endif
+
+                        <div class="flex justify-between items-center mt-6 pt-4 border-t border-slate-100">
+                            <p class="text-xs text-slate-500 max-w-sm">
+                                Matching the schema will <strong class="text-red-600">drop</strong> the target table and recreate it, then automatically sync the data.
+                            </p>
+                            <div class="flex gap-3">
+                                <button wire:click="closeSchemaWarnings" class="px-4 py-2.5 text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors">
+                                    Close
+                                </button>
+                                <button wire:click="matchTargetSchema('{{ $schema_warnings_table }}')" wire:loading.attr="disabled" class="px-4 py-2.5 text-sm font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors inline-flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                                    </svg>
+                                    Match Target Schema
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -6,6 +6,7 @@ use Livewire\Component;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use MrBohem\Larasync\Services\DatabaseConnectionService;
 use MrBohem\Larasync\Services\TableComparisonService;
 use MrBohem\Larasync\Services\TableSyncService;
@@ -76,6 +77,10 @@ class SyncDashboard extends Component
     public $pending_create_table = null;
     public $pending_create_preview = [];
 
+    // ── Schema Warnings ────────────────────────────────────────────
+    public $show_schema_modal = false;
+    public $schema_warnings_table = null;
+
     // ── Services ───────────────────────────────────────────────────
     private DatabaseConnectionService $connectionService;
     private TableComparisonService $comparisonService;
@@ -86,8 +91,8 @@ class SyncDashboard extends Component
     public function boot()
     {
         $this->connectionService = new DatabaseConnectionService();
-        $this->comparisonService = new TableComparisonService($this->connectionService);
         $this->schemaService = new TableSchemaService($this->connectionService);
+        $this->comparisonService = new TableComparisonService($this->connectionService, $this->schemaService);
         $this->syncService = new TableSyncService($this->connectionService, $this->comparisonService, $this->schemaService);
         $this->dependencyService = new TableDependencyService($this->connectionService);
     }
@@ -485,6 +490,63 @@ class SyncDashboard extends Component
     }
 
     /**
+     * Show schema warnings modal for a specific table.
+     */
+    public function showSchemaWarnings(string $tableName)
+    {
+        if (isset($this->comparison[$tableName])) {
+            $this->schema_warnings_table = $tableName;
+            $this->show_schema_modal = true;
+        }
+    }
+
+    /**
+     * Close schema warnings modal.
+     */
+    public function closeSchemaWarnings()
+    {
+        $this->show_schema_modal = false;
+        $this->schema_warnings_table = null;
+    }
+
+    /**
+     * Match target schema exactly to source by dropping and recreating.
+     */
+    public function matchTargetSchema(string $tableName)
+    {
+        $this->closeSchemaWarnings();
+
+        $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
+        $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
+
+        $targetConn = 'sync_target_match';
+        $this->connectionService->registerConnection($targetConn, $targetConfig);
+
+        $this->logs[] = "⚠️ Dropping target table: {$tableName} to perfectly match schema...";
+
+        try {
+            // Drop target table safely utilizing TableSchemaService
+            $this->schemaService->dropTable($targetConn, $tableName);
+
+            // Set state flag to prevent normal sync table from ignoring the missing table if createMissingTable is false
+            // But we pass createMissingTable: true below, so it's fine.
+            $this->logs[] = "🔧 Recreating target table: {$tableName} and syncing data...";
+
+            // Recreate table and sync data
+            $this->syncTable($tableName, createMissingTable: true);
+            
+            $this->logs[] = "✅ Schema successfully matched for {$tableName}";
+
+            // Re-run comparison to show updated schema matching status
+            $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
+
+        } catch (\Exception $e) {
+            $this->logs[] = "❌ Failed to match schema for {$tableName}: " . $e->getMessage();
+            Log::error("Match schema error {$tableName}: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Start the actual sync-all process (after missing table handling).
      */
     private function startSyncAllTables()
@@ -627,6 +689,8 @@ class SyncDashboard extends Component
         $this->show_missing_tables_modal = false;
         $this->pending_create_table = null;
         $this->pending_create_preview = [];
+        $this->show_schema_modal = false;
+        $this->schema_warnings_table = null;
         $this->checkDbStatus();
         $this->updateLabels();
     }

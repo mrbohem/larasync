@@ -4,11 +4,13 @@ use Illuminate\Support\Facades\DB;
 use MrBohem\Larasync\Services\DatabaseConnectionService;
 use MrBohem\Larasync\Services\TableComparisonService;
 use MrBohem\Larasync\Services\TableSyncService;
+use MrBohem\Larasync\Services\TableSchemaService;
 
 beforeEach(function () {
     $this->connectionService = new DatabaseConnectionService();
-    $this->comparisonService = new TableComparisonService($this->connectionService);
-    $this->service = new TableSyncService($this->connectionService, $this->comparisonService);
+    $this->schemaService = new TableSchemaService($this->connectionService);
+    $this->comparisonService = new TableComparisonService($this->connectionService, $this->schemaService);
+    $this->service = new TableSyncService($this->connectionService, $this->comparisonService, $this->schemaService);
 });
 
 // ── syncTable() ────────────────────────────────────────────────
@@ -148,8 +150,8 @@ it('creates missing target table when createMissingTable flag is true', function
 
     // Use a service with TableSchemaService injected
     $connService = new \MrBohem\Larasync\Services\DatabaseConnectionService();
-    $compService = new \MrBohem\Larasync\Services\TableComparisonService($connService);
     $schemaService = new \MrBohem\Larasync\Services\TableSchemaService($connService);
+    $compService = new \MrBohem\Larasync\Services\TableComparisonService($connService, $schemaService);
     $syncService = new \MrBohem\Larasync\Services\TableSyncService($connService, $compService, $schemaService);
 
     $result = $syncService->syncTable('users', $sourceConfig, $targetConfig, createMissingTable: true);
