@@ -3,15 +3,12 @@
 namespace MrBohem\Larasync\Http\Livewire;
 
 use Livewire\Component;
-use Livewire\WithFileUploads;
 use Illuminate\Validation\Rule;
 use MrBohem\Larasync\Services\SettingsService;
 use MrBohem\Larasync\Services\DatabaseConnectionService;
 
 class Settings extends Component
 {
-    use WithFileUploads;
-
     // ── DB1 Fields ────────────────────────────────────────────────
     public $db1_driver = 'mysql';
     public $db1_host = '';
@@ -20,7 +17,6 @@ class Settings extends Component
     public $db1_username = '';
     public $db1_password = '';
     public $db1_schema = '';
-    public $db1_sqlite_file;
 
     // ── DB2 Fields ────────────────────────────────────────────────
     public $db2_driver = 'mysql';
@@ -30,7 +26,6 @@ class Settings extends Component
     public $db2_username = '';
     public $db2_password = '';
     public $db2_schema = '';
-    public $db2_sqlite_file;
 
     // ── UI State ──────────────────────────────────────────────────
     public $db1_test_status = null; // null, 'success', 'error'
@@ -107,9 +102,17 @@ class Settings extends Component
     {
         $this->validate([
             'db1_driver' => ['required', Rule::in(['sqlite', 'mysql', 'pgsql'])],
-            'db1_database' => 'required',
+            'db1_database' => ['required', function($attribute, $value, $fail) {
+                if ($this->db1_driver === 'sqlite' && !file_exists($value)) {
+                    $fail('SQLite file path does not exist.');
+                }
+            }],
             'db2_driver' => ['required', Rule::in(['sqlite', 'mysql', 'pgsql'])],
-            'db2_database' => 'required',
+            'db2_database' => ['required', function($attribute, $value, $fail) {
+                if ($this->db2_driver === 'sqlite' && !file_exists($value)) {
+                    $fail('SQLite file path does not exist.');
+                }
+            }],
             'db1_host' => ['required_unless:db1_driver,sqlite'],
             'db1_port' => 'nullable|numeric',
             'db1_username' => ['required_unless:db1_driver,sqlite'],
@@ -119,15 +122,6 @@ class Settings extends Component
         ]);
 
         try {
-            // Handle SQLite file uploads
-            foreach (['db1', 'db2'] as $db) {
-                $fileProperty = "{$db}_sqlite_file";
-                if ($this->{"{$db}_driver"} === 'sqlite' && $this->{$fileProperty}) {
-                    $path = $this->settingsService->handleSqliteUpload($this->{$fileProperty}, $db);
-                    $this->{"{$db}_database"} = $path;
-                    $this->{$fileProperty} = null;
-                }
-            }
 
             $settings = [];
             foreach (['db1', 'db2'] as $db) {

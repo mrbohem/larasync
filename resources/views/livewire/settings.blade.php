@@ -142,19 +142,8 @@
                     {{-- SQLite Database Path --}}
                     <div>
                         <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1.5">Database File Path</label>
-                        <input type="text" wire:model="db1_database" placeholder="database.sqlite" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors outline-none font-mono">
+                        <input type="text" wire:model="db1_database" placeholder="/path/to/database.sqlite" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors outline-none font-mono">
                         @error('db1_database') <span class="text-xs text-red-500 mt-1">{{ $message }}</span> @enderror
-                    </div>
-
-                    {{-- SQLite File Upload --}}
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1.5">Or Upload SQLite File</label>
-                        <div class="relative">
-                            <input type="file" wire:model="db1_sqlite_file" accept=".sqlite,.db,.sqlite3" class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 file:cursor-pointer cursor-pointer">
-                            <div wire:loading wire:target="db1_sqlite_file" class="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
-                                <svg class="animate-spin w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-                            </div>
-                        </div>
                     </div>
                 @endif
 
@@ -276,19 +265,8 @@
                     {{-- SQLite Database Path --}}
                     <div>
                         <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1.5">Database File Path</label>
-                        <input type="text" wire:model="db2_database" placeholder="database.sqlite" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors outline-none font-mono">
+                        <input type="text" wire:model="db2_database" placeholder="/path/to/database.sqlite" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors outline-none font-mono">
                         @error('db2_database') <span class="text-xs text-red-500 mt-1">{{ $message }}</span> @enderror
-                    </div>
-
-                    {{-- SQLite File Upload --}}
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1.5">Or Upload SQLite File</label>
-                        <div class="relative">
-                            <input type="file" wire:model="db2_sqlite_file" accept=".sqlite,.db,.sqlite3" class="w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 file:cursor-pointer cursor-pointer">
-                            <div wire:loading wire:target="db2_sqlite_file" class="absolute inset-0 bg-white/80 rounded-xl flex items-center justify-center">
-                                <svg class="animate-spin w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-                            </div>
-                        </div>
                     </div>
                 @endif
 
@@ -411,38 +389,6 @@
                         Saving...
                     </span>
                 </button>
-            </div>
-        </div>
-    </div>
-
-    {{-- Info Card --}}
-    <div class="bg-indigo-50/50 rounded-2xl border border-indigo-100 p-6">
-        <div class="flex items-start gap-4">
-            <div class="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-            </div>
-            <div>
-                <h4 class="text-sm font-semibold text-indigo-900 mb-1">How it works</h4>
-                <ul class="text-xs text-indigo-700 space-y-1.5 leading-relaxed">
-                    <li class="flex items-start gap-2">
-                        <span class="text-indigo-400 mt-0.5">•</span>
-                        Settings are saved to <code class="bg-indigo-100 px-1 rounded font-mono">storage/app/larasync/settings.json</code> with encrypted passwords
-                    </li>
-                    <li class="flex items-start gap-2">
-                        <span class="text-indigo-400 mt-0.5">•</span>
-                        UI settings take priority over <code class="bg-indigo-100 px-1 rounded font-mono">.env</code> values — no code changes needed
-                    </li>
-                    <li class="flex items-start gap-2">
-                        <span class="text-indigo-400 mt-0.5">•</span>
-                        For SQLite, provide the filename (relative to <code class="bg-indigo-100 px-1 rounded font-mono">database/</code>) or upload the file directly
-                    </li>
-                    <li class="flex items-start gap-2">
-                        <span class="text-indigo-400 mt-0.5">•</span>
-                        Use "Reset to Defaults" to clear saved settings and fall back to <code class="bg-indigo-100 px-1 rounded font-mono">.env</code>
-                    </li>
-                </ul>
             </div>
         </div>
     </div>
