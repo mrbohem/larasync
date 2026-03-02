@@ -201,7 +201,7 @@
                                 </div>
                                 <div class="flex-1 min-w-0">
                                     <div class="text-sm font-semibold text-slate-900 mb-1">{{ $db1_display }} → {{ $db2_display }}</div>
-                                    <div class="text-xs text-slate-600 leading-relaxed">
+                                    <div class="text-xs text-slate-600 leading-relaxed break-words">
                                         {{ $db1_driver }} / {{ $db1_database }}
                                         <span class="mx-1">→</span>
                                         {{ $db2_driver }} / {{ $db2_database }}
@@ -232,7 +232,7 @@
                                 </div>
                                 <div class="flex-1 min-w-0">
                                     <div class="text-sm font-semibold text-slate-900 mb-1">{{ $db2_display }} → {{ $db1_display }}</div>
-                                    <div class="text-xs text-slate-600 leading-relaxed">
+                                    <div class="text-xs text-slate-600 leading-relaxed break-words">
                                         {{ $db2_driver }} / {{ $db2_database }}
                                         <span class="mx-1">→</span>
                                         {{ $db1_driver }} / {{ $db1_database }}
