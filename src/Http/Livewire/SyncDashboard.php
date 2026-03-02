@@ -632,18 +632,22 @@ class SyncDashboard extends Component
         $this->logs[] = '⛔ Sync stopped by user';
         $this->dispatch('sync-stopped');
 
-        // Re-run comparison to show actual current row counts
+        // Re-run comparison to show actual current row counts (only if both databases are configured)
         try {
             $sourceConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db1' : 'db2');
             $targetConfig = $this->buildConfigFromProperties($this->sync_direction === 'db1_to_db2' ? 'db2' : 'db1');
-            $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
+            
+            // Only refresh if both configs are valid
+            if ($sourceConfig && $targetConfig) {
+                $this->comparison = $this->comparisonService->compare($sourceConfig, $targetConfig);
 
-            // Fix all tables with exact COUNT(*) — InnoDB estimates are stale after truncate+insert
-            foreach (array_keys($this->comparison) as $table) {
-                $this->fixComparisonRowCount($table, $sourceConfig, $targetConfig);
+                // Fix all tables with exact COUNT(*) — InnoDB estimates are stale after truncate+insert
+                foreach (array_keys($this->comparison) as $table) {
+                    $this->fixComparisonRowCount($table, $sourceConfig, $targetConfig);
+                }
+
+                $this->logs[] = '📊 Row counts refreshed';
             }
-
-            $this->logs[] = '📊 Row counts refreshed';
         } catch (\Exception $e) {
             $this->logs[] = '⚠️ Could not refresh row counts: ' . $e->getMessage();
         }

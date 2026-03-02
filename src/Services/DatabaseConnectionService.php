@@ -62,6 +62,11 @@ class DatabaseConnectionService
             return null;
         }
 
+        // SQLite requires a database path
+        if ($driver === 'sqlite' && !$database) {
+            return null;
+        }
+
         // Use provided schema or get default for the driver
         if ($schema === null) {
             $schema = $this->getDefaultSchema($driver);
@@ -110,7 +115,12 @@ class DatabaseConnectionService
         }
 
         if ($driver === 'sqlite') {
-            $config['database'] = database_path($config['database']);
+            // Use absolute path as-is, otherwise resolve relative to database directory
+            $dbPath = $config['database'];
+            if ($dbPath && !$this->isAbsolutePath($dbPath)) {
+                $dbPath = database_path($dbPath);
+            }
+            $config['database'] = $dbPath;
         }
 
         return $config;
@@ -133,6 +143,24 @@ class DatabaseConnectionService
             Log::error("{$name} test connection failed: " . $e->getMessage());
             return false;
         }
+    }
+
+    /**
+     * Check if a path is absolute or relative.
+     */
+    private function isAbsolutePath(string $path): bool
+    {
+        // Check for Unix-style absolute path
+        if (str_starts_with($path, '/')) {
+            return true;
+        }
+        
+        // Check for Windows-style absolute path (C:\, D:\, etc.)
+        if (preg_match('/^[a-zA-Z]:[\\/]/', $path)) {
+            return true;
+        }
+        
+        return false;
     }
 
     /**
