@@ -10,9 +10,22 @@ class DatabaseConnectionService
 {
     /**
      * Check if a database prefix (db1/db2) has required config values.
+     * Checks saved UI settings first, then falls back to config/env.
      */
     public function isConfigured(string $prefix): bool
     {
+        // Check saved settings first
+        $settingsService = app(SettingsService::class);
+        if ($settingsService->has()) {
+            $settings = $settingsService->load();
+            $driver = $settings[$prefix]['driver'] ?? null;
+            $database = $settings[$prefix]['database'] ?? null;
+            if (!empty($driver) && !empty($database)) {
+                return true;
+            }
+        }
+
+        // Fall back to config/env
         $driver = config("larasync.{$prefix}.driver");
         $database = config("larasync.{$prefix}.database");
 

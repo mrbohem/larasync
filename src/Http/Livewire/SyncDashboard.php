@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use MrBohem\Larasync\Services\ConnectionLabelService;
 use MrBohem\Larasync\Services\DatabaseConnectionService;
+use MrBohem\Larasync\Services\SettingsService;
 use MrBohem\Larasync\Services\SyncOrchestrationService;
 use MrBohem\Larasync\Services\TableComparisonService;
 use MrBohem\Larasync\Services\TableSyncService;
@@ -86,6 +87,7 @@ class SyncDashboard extends Component
 
     // ── Services ───────────────────────────────────────────────────
     private DatabaseConnectionService $connectionService;
+    private SettingsService $settingsService;
     private TableComparisonService $comparisonService;
     private TableSyncService $syncService;
     private TableDependencyService $dependencyService;
@@ -96,6 +98,7 @@ class SyncDashboard extends Component
     public function boot()
     {
         $this->connectionService = app(DatabaseConnectionService::class);
+        $this->settingsService = app(SettingsService::class);
         $this->schemaService = app(TableSchemaService::class);
         $this->comparisonService = app(TableComparisonService::class);
         $this->syncService = app(TableSyncService::class);
@@ -133,9 +136,13 @@ class SyncDashboard extends Component
 
     private function loadConfigValues()
     {
+        // Try loading from saved settings (JSON) first, then fall back to config/env
+        $savedSettings = $this->settingsService->has() ? $this->settingsService->load() : [];
+
         foreach (['db1', 'db2'] as $db) {
             foreach (['driver', 'host', 'port', 'database', 'username', 'password', 'schema'] as $field) {
-                $this->{$db . '_' . $field} = config("larasync.{$db}.{$field}");
+                $savedValue = $savedSettings[$db][$field] ?? null;
+                $this->{$db . '_' . $field} = !empty($savedValue) ? $savedValue : config("larasync.{$db}.{$field}");
             }
         }
         $this->updateLabels();

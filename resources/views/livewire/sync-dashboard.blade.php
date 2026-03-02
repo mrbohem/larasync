@@ -69,11 +69,11 @@
                         </svg>
                     </div>
                     <h4 class="text-sm font-semibold text-slate-900 mb-1">Configure DB1 Database</h4>
-                    <p class="text-xs text-slate-600 mb-4">Add DB1 credentials to <code class="px-2 py-0.5 bg-slate-100 rounded text-xs font-mono">.env</code></p>
-                    <button wire:click="toggleDb1Form"
-                        class="px-5 py-2.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors">
+                    <p class="text-xs text-slate-600 mb-4">Go to <a href="{{ route('larasync.settings') }}" class="text-indigo-600 font-medium hover:underline">Settings</a> to configure</p>
+                    <a href="{{ route('larasync.settings') }}"
+                        class="px-5 py-2.5 text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors inline-block">
                         Setup DB1
-                    </button>
+                    </a>
                 </div>
             @endif
         </div>
@@ -145,11 +145,11 @@
                         </svg>
                     </div>
                     <h4 class="text-sm font-semibold text-slate-900 mb-1">Configure DB2 Database</h4>
-                    <p class="text-xs text-slate-600 mb-4">Add DB2 credentials to <code class="px-2 py-0.5 bg-slate-100 rounded text-xs font-mono">.env</code></p>
-                    <button wire:click="toggleDb2Form"
-                        class="px-5 py-2.5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors">
+                    <p class="text-xs text-slate-600 mb-4">Go to <a href="{{ route('larasync.settings') }}" class="text-emerald-600 font-medium hover:underline">Settings</a> to configure</p>
+                    <a href="{{ route('larasync.settings') }}"
+                        class="px-5 py-2.5 text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors inline-block">
                         Setup DB2
-                    </button>
+                    </a>
                 </div>
             @endif
         </div>
@@ -941,17 +941,17 @@
                 Configure your databases to start synchronizing data across environments
             </p>
             <div class="grid lg:grid-cols-2 gap-4 max-w-2xl mx-auto">
-                <button wire:click="toggleDb1Form"
-                    class="p-6 bg-indigo-50 hover:bg-indigo-100 border-2 border-indigo-200 hover:border-indigo-300 rounded-xl transition-all">
+                <a href="{{ route('larasync.settings') }}"
+                    class="p-6 bg-indigo-50 hover:bg-indigo-100 border-2 border-indigo-200 hover:border-indigo-300 rounded-xl transition-all block text-center">
                     <div class="w-12 h-12 bg-indigo-600 rounded-lg flex items-center justify-center mx-auto mb-3">
                         <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 1.79 4 4 4h10c2.21 0 4-1.79 4-4V7"></path>
                         </svg>
                     </div>
                     <div class="text-base font-semibold text-slate-900">Setup DB1</div>
-                </button>
-                <button wire:click="toggleDb2Form"
-                    class="p-6 bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-200 hover:border-emerald-300 rounded-xl transition-all">
+                </a>
+                <a href="{{ route('larasync.settings') }}"
+                    class="p-6 bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-200 hover:border-emerald-300 rounded-xl transition-all block text-center">
                     <div class="w-12 h-12 bg-emerald-600 rounded-lg flex items-center justify-center mx-auto mb-3">
                         <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -960,7 +960,7 @@
                         </svg>
                     </div>
                     <div class="text-base font-semibold text-slate-900">Setup DB2</div>
-                </button>
+                </a>
             </div>
         </div>
     @endif

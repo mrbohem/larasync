@@ -7,6 +7,7 @@ use Spatie\LaravelPackageTools\PackageServiceProvider;
 use MrBohem\Larasync\Commands\LarasyncCommand;
 use Livewire\Livewire;
 use MrBohem\Larasync\Http\Livewire\SyncDashboard;
+use MrBohem\Larasync\Http\Livewire\Settings;
 
 class LarasyncServiceProvider extends PackageServiceProvider
 {
@@ -29,5 +30,6 @@ class LarasyncServiceProvider extends PackageServiceProvider
     {
         // Register Livewire components manually
         Livewire::component('larasync::sync-dashboard', SyncDashboard::class);
+        Livewire::component('larasync::settings', Settings::class);
     }
 }

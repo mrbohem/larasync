@@ -46,8 +46,14 @@ class TableComparisonService
         // Merge on normalized names
         $allTables = array_unique(array_merge(array_keys($sourceMap), array_keys($targetMap)));
 
-        // Exclude ignored tables
-        $ignoredTables = config('larasync.ignored_tables', []);
+        // Exclude ignored tables (check saved settings first, then config)
+        $settingsService = app(SettingsService::class);
+        if ($settingsService->has()) {
+            $savedSettings = $settingsService->load();
+            $ignoredTables = $savedSettings['ignored_tables'] ?? config('larasync.ignored_tables', []);
+        } else {
+            $ignoredTables = config('larasync.ignored_tables', []);
+        }
         $allTables = array_diff($allTables, $ignoredTables);
 
         // Fetch all row counts in batch queries instead of individual queries
