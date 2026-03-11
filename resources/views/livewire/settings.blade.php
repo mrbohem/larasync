@@ -355,6 +355,45 @@
         </div>
     </div>
 
+    {{-- Performance / Chunking --}}
+    <div class="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
+        <div class="px-6 py-5 bg-gradient-to-r from-slate-50 to-slate-50/30 border-b border-slate-100/80">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center">
+                    <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="text-base font-semibold text-slate-900">Performance</h3>
+                    <p class="text-xs text-slate-500">Adjust chunking and batch sizes for syncing large tables</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-6 space-y-4">
+            <div class="grid grid-cols-3 gap-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1.5">Chunk Size</label>
+                    <input type="number" min="1" wire:model="performance_chunk_size" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors outline-none font-mono">
+                    @error('performance_chunk_size') <span class="text-xs text-red-500 mt-1">{{ $message }}</span> @enderror
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1.5">Batch Insert Size</label>
+                    <input type="number" min="1" wire:model="performance_batch_insert_size" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors outline-none font-mono">
+                    @error('performance_batch_insert_size') <span class="text-xs text-red-500 mt-1">{{ $message }}</span> @enderror
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wide mb-1.5">Progress Chunk Size</label>
+                    <input type="number" min="1" wire:model="performance_progress_chunk_size" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-colors outline-none font-mono">
+                    @error('performance_progress_chunk_size') <span class="text-xs text-red-500 mt-1">{{ $message }}</span> @enderror
+                </div>
+            </div>
+
+            <p class="text-xs text-slate-500">Defaults: Chunk Size 1000, Batch Insert 500, Progress Chunk 5000. Reduce to lower memory / increase to improve throughput.</p>
+        </div>
+    </div>
+
     {{-- Action Buttons --}}
     <div class="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-6">
         <div class="flex items-center justify-between">

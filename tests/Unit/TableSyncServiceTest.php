@@ -10,7 +10,8 @@ beforeEach(function () {
     $this->connectionService = new DatabaseConnectionService();
     $this->schemaService = new TableSchemaService($this->connectionService);
     $this->comparisonService = new TableComparisonService($this->connectionService, $this->schemaService);
-    $this->service = new TableSyncService($this->connectionService, $this->comparisonService, $this->schemaService);
+    $this->settingsService = new \MrBohem\Larasync\Services\SettingsService();
+    $this->service = new TableSyncService($this->connectionService, $this->comparisonService, $this->schemaService, $this->settingsService);
 });
 
 // ── syncTable() ────────────────────────────────────────────────
@@ -152,7 +153,8 @@ it('creates missing target table when createMissingTable flag is true', function
     $connService = new \MrBohem\Larasync\Services\DatabaseConnectionService();
     $schemaService = new \MrBohem\Larasync\Services\TableSchemaService($connService);
     $compService = new \MrBohem\Larasync\Services\TableComparisonService($connService, $schemaService);
-    $syncService = new \MrBohem\Larasync\Services\TableSyncService($connService, $compService, $schemaService);
+    $settingsService = new \MrBohem\Larasync\Services\SettingsService();
+    $syncService = new \MrBohem\Larasync\Services\TableSyncService($connService, $compService, $schemaService, $settingsService);
 
     $result = $syncService->syncTable('users', $sourceConfig, $targetConfig, createMissingTable: true);
 

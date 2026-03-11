@@ -305,7 +305,10 @@ class SyncDashboard extends Component
 
         $sourceRows = $this->comparison[$tableName]['rows1'] ?? 0;
 
-        if ($sourceRows <= 20000) {
+        // Decide chunked vs single-request based on saved progress chunk size
+        $progressChunkSize = (int) $this->settingsService->get('performance.progress_chunk_size', 20000);
+
+        if ($sourceRows <= $progressChunkSize) {
             // Small table - use existing single-request sync
             $this->syncTable($tableName);
             return;

@@ -40,6 +40,11 @@ class Settings extends Component
     public $ignored_tables = '';
     public $new_ignored_table = '';
 
+    // ── Performance / Chunking ─────────────────────────────────----
+    public $performance_chunk_size = 1000;
+    public $performance_batch_insert_size = 500;
+    public $performance_progress_chunk_size = 5000;
+
     // ── Services ──────────────────────────────────────────────────
     private SettingsService $settingsService;
     private DatabaseConnectionService $connectionService;
@@ -75,6 +80,10 @@ class Settings extends Component
             // Load ignored tables from saved settings
             $tables = $settings['ignored_tables'] ?? config('larasync.ignored_tables', []);
             $this->ignored_tables = is_array($tables) ? implode(', ', $tables) : $tables;
+            // Load performance settings
+            $this->performance_chunk_size = $settings['performance']['chunk_size'] ?? $this->performance_chunk_size;
+            $this->performance_batch_insert_size = $settings['performance']['batch_insert_size'] ?? $this->performance_batch_insert_size;
+            $this->performance_progress_chunk_size = $settings['performance']['progress_chunk_size'] ?? $this->performance_progress_chunk_size;
         } else {
             // Fall back to config (env) values
             $hasEnv = false;
@@ -92,6 +101,10 @@ class Settings extends Component
             // Load ignored tables from config
             $tables = config('larasync.ignored_tables', []);
             $this->ignored_tables = implode(', ', $tables);
+            // Load performance defaults from config if present
+            $this->performance_chunk_size = config('larasync.performance.chunk_size', $this->performance_chunk_size);
+            $this->performance_batch_insert_size = config('larasync.performance.batch_insert_size', $this->performance_batch_insert_size);
+            $this->performance_progress_chunk_size = config('larasync.performance.progress_chunk_size', $this->performance_progress_chunk_size);
         }
     }
 
@@ -119,6 +132,9 @@ class Settings extends Component
             'db2_host' => ['required_unless:db2_driver,sqlite'],
             'db2_port' => 'nullable|numeric',
             'db2_username' => ['required_unless:db2_driver,sqlite'],
+            'performance_chunk_size' => 'nullable|numeric|min:1',
+            'performance_batch_insert_size' => 'nullable|numeric|min:1',
+            'performance_progress_chunk_size' => 'nullable|numeric|min:1',
         ]);
 
         try {
@@ -134,6 +150,13 @@ class Settings extends Component
             $settings['ignored_tables'] = array_values(array_filter(
                 array_map('trim', explode(',', $this->ignored_tables))
             ));
+
+            // Save performance settings
+            $settings['performance'] = [
+                'chunk_size' => (int) $this->performance_chunk_size,
+                'batch_insert_size' => (int) $this->performance_batch_insert_size,
+                'progress_chunk_size' => (int) $this->performance_progress_chunk_size,
+            ];
 
             $this->settingsService->save($settings);
 

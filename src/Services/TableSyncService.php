@@ -6,17 +6,17 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use MrBohem\Larasync\Support\SyncResult;
+use MrBohem\Larasync\Services\SettingsService;
 
 class TableSyncService
 {
-    private const CHUNK_SIZE = 1000;
-    private const BATCH_INSERT_SIZE = 500;
-    private const PROGRESS_CHUNK_SIZE = 5000;
+    
 
     public function __construct(
         private DatabaseConnectionService $connectionService,
         private TableComparisonService $comparisonService,
         private TableSchemaService $schemaService,
+        private SettingsService $settingsService,
     ) {
     }
 
@@ -197,12 +197,16 @@ class TableSyncService
             $columns = Schema::connection($sourceConn)->getColumnListing($sourceTableName);
             $orderByColumn = !empty($columns) ? $columns[0] : null;
 
+            // Read configurable sizes from settings (with safe defaults)
+            $progressChunkSize = (int) $this->settingsService->get('performance.progress_chunk_size', 5000);
+            $batchInsertSize = (int) $this->settingsService->get('performance.batch_insert_size', 500);
+
             // Fetch chunk of rows using offset pagination
             $query = $sourceConnection->table($sourceTableName);
             if ($orderByColumn) {
                 $query = $query->orderBy($orderByColumn);
             }
-            $rows = $query->skip($offset)->take(self::PROGRESS_CHUNK_SIZE)->get();
+            $rows = $query->skip($offset)->take($progressChunkSize)->get();
 
             $rowCount = $rows->count();
 
@@ -212,7 +216,7 @@ class TableSyncService
                 if ($targetDriver === 'pgsql') {
                     $targetConnection->statement('SET session_replication_role = replica');
                     try {
-                        foreach (array_chunk($data, self::BATCH_INSERT_SIZE) as $batch) {
+                        foreach (array_chunk($data, $batchInsertSize) as $batch) {
                             $targetConnection->table($unqualifiedTableName)->insert($batch);
                         }
                     } finally {
@@ -221,7 +225,7 @@ class TableSyncService
                 } else {
                     Schema::connection($targetConn)->disableForeignKeyConstraints();
                     try {
-                        foreach (array_chunk($data, self::BATCH_INSERT_SIZE) as $batch) {
+                        foreach (array_chunk($data, $batchInsertSize) as $batch) {
                             $targetConnection->table($unqualifiedTableName)->insert($batch);
                         }
                     } finally {
@@ -231,7 +235,7 @@ class TableSyncService
             }
 
             $newOffset = $offset + $rowCount;
-            $done = $rowCount < self::PROGRESS_CHUNK_SIZE;
+            $done = $rowCount < $progressChunkSize;
 
             return [
                 'success' => true,
@@ -325,7 +329,8 @@ class TableSyncService
      */
     private function insertData($connection, string $tableName, array $data): void
     {
-        foreach (array_chunk($data, self::CHUNK_SIZE) as $chunk) {
+        $chunkSize = (int) $this->settingsService->get('performance.chunk_size', 1000);
+        foreach (array_chunk($data, $chunkSize) as $chunk) {
             $connection->table($tableName)->insert($chunk);
         }
     }
@@ -405,13 +410,16 @@ class TableSyncService
         }
 
         // Stream data in chunks (this doesn't load all data into memory at once)
-        $query->chunk(self::CHUNK_SIZE, function ($rows) use ($targetConnection, $tableName, &$batch, &$count) {
+        $chunkSize = (int) $this->settingsService->get('performance.chunk_size', 1000);
+        $batchInsertSize = (int) $this->settingsService->get('performance.batch_insert_size', 500);
+
+        $query->chunk($chunkSize, function ($rows) use ($targetConnection, $tableName, &$batch, &$count, $batchInsertSize) {
             foreach ($rows as $row) {
                 $batch[] = (array) $row;
                 $count++;
 
                 // Insert when batch reaches BATCH_INSERT_SIZE
-                if (count($batch) >= self::BATCH_INSERT_SIZE) {
+                if (count($batch) >= $batchInsertSize) {
                     $targetConnection->table($tableName)->insert($batch);
                     $batch = [];
                 }
